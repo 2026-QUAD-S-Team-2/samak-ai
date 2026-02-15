@@ -1,0 +1,27 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.env
+
+# Local ad-hoc test inputs
+scripts/posting*.txt
+
+# Training data/artifacts (keep README tracked)
+training/data/*
+!training/data/README.md
+training/notebooks/.ipynb_checkpoints/
+
+# Model artifacts (keep folder + README)
+models/**/vectorizer*.joblib
+models/**/model*.joblib
+models/**/classifier*.joblib
+models/**/calibrator*.joblib
+models/**/metadata.json

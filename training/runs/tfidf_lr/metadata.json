@@ -1,0 +1,81 @@
+{
+  "model_version": "fraud-baseline-v1.0.0",
+  "trained_at": "2026-02-15T11:29:45.223147+00:00",
+  "threshold": 0.5,
+  "notes": "tfidf + logistic regression (threshold tuned in evaluate)",
+  "preprocess_signature": {
+    "max_text_chars": 6000,
+    "min_text_chars": 50,
+    "test_size": 0.2,
+    "valid_size": 0.0,
+    "random_state": 42,
+    "fakepos_multiplier": 2.0,
+    "linkedin_multiplier": 3.0,
+    "mask_leakage": true,
+    "dedupe": true
+  },
+  "dataset_signature": {
+    "train_size": 30994,
+    "train_pos": 2046,
+    "train_neg": 28948,
+    "test_size": 3497,
+    "test_pos": 171,
+    "test_neg": 3326,
+    "sources": {
+      "train": {
+        "FakeJobPostings_PosOnly": {
+          "size": 1364,
+          "pos": 1364,
+          "neg": 0
+        },
+        "LinkedIn_NegOnly": {
+          "size": 15644,
+          "pos": 0,
+          "neg": 15644
+        },
+        "RecruitmentScam": {
+          "size": 13986,
+          "pos": 682,
+          "neg": 13304
+        }
+      },
+      "test": {
+        "RecruitmentScam": {
+          "size": 3497,
+          "pos": 171,
+          "neg": 3326
+        }
+      }
+    },
+    "raw_files": [
+      {
+        "path": "training/data/raw/FakeJobPostings.csv",
+        "size_bytes": 3011230,
+        "mtime": 1771121995.5327332
+      },
+      {
+        "path": "training/data/raw/LinkedInPostings.csv",
+        "size_bytes": 63755145,
+        "mtime": 1771121995.5770872
+      },
+      {
+        "path": "training/data/raw/RecruitmentScam.csv",
+        "size_bytes": 59068295,
+        "mtime": 1771121995.5243454
+      }
+    ]
+  },
+  "config": {
+    "train_path": "training/data/processed/train.csv",
+    "test_path": "training/data/processed/test.csv",
+    "out_dir": "training/runs/tfidf_lr",
+    "model_version": "fraud-baseline-v1.0.0",
+    "max_features": 50000,
+    "ngram_max": 2,
+    "min_df": 2,
+    "class_weight": "balanced",
+    "random_state": 42,
+    "max_iter": 2000
+  },
+  "metrics": null
+}
