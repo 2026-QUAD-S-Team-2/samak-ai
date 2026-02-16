@@ -17,6 +17,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Request
 
 from app.ml.ml_baseline import BaselineModel, ModelArtifactsError
+from app.ml.risk_regions import find_risk_regions
 from app.services.gemini_service import polish_with_gemini
 from app.services.ocr_service import OCRResult, ocr_from_bytes, ocr_from_url
 from app.services.scoring_service import PredictionScores, score_prediction
@@ -122,6 +123,10 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
                 "riskLevel": None,
                 "thresholdUsed": None,
             },
+            "explanation": {
+                "riskSignals": [],
+                "note": "Signals are matched against predefined scam-pattern rules.",
+            },
             "ui": {"riskLevel": "UNKNOWN", "trustLabel": None, "trustScore": None},
             "analysisSummary": {"score": None, "label": None, "message": message},
         }
@@ -133,12 +138,17 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
     try:
         model = BaselineModel.load_default()
         fraud_prob = model.predict_proba_from_ocr(ocr.text)
+        risk_signals = model.risk_signals_from_ocr(ocr.text, top_k=3)
+        cleaned_input = model.get_cleaned_input_from_ocr(ocr.text)
+        risk_regions = find_risk_regions(cleaned_input, top_k=5)
         threshold_used = model.threshold
         model_version = model.model_version
     except ModelArtifactsError as e:
         # 모델 로딩 실패해도 API는 200을 유지(템플릿 message로 fallback)
         logger.error("Model load failed: %s", e)
         fraud_prob = 0.0
+        risk_signals = []
+        risk_regions = []
         threshold_used = 0.5
         model_version = "fraud-baseline-v1.0.0"
         model = None  # type: ignore[assignment]
@@ -150,6 +160,8 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
         trust_score=scores.trust_score,
         risk_score=scores.risk_score,
         ui_trust_label=scores.ui_trust_label,
+        has_signals=bool(risk_signals),
+        travel_ban_regions=risk_regions,
     )
 
     polished = template_message
@@ -165,6 +177,7 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
             trust_label=scores.ui_trust_label,
             fraud_probability=fraud_prob,
             risk_score=scores.risk_score,
+            risk_signals=risk_signals,
         )
         prompt_used = gemini_out.prompt_used
         polished = gemini_out.message
@@ -193,6 +206,10 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
             "riskLevel": scores.model_risk_level,
             "thresholdUsed": float(threshold_used),
         },
+        "explanation": {
+            "riskSignals": risk_signals,
+            "note": "Signals are matched against predefined scam-pattern rules.",
+        },
         "ui": {
             "riskLevel": scores.ui_risk_level,
             "trustLabel": scores.ui_trust_label,
@@ -216,6 +233,8 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
         }
         if model is not None:
             resp["debug"]["inputStructured"] = model.structure_ocr_text(ocr.text)
-            resp["debug"]["inputCleaned"] = model.clean_text(model.structure_ocr_text(ocr.text))
+            resp["debug"]["inputCleaned"] = model.get_cleaned_input_from_ocr(ocr.text)
+            resp["debug"]["explanation"] = {"riskSignals": risk_signals}
+            resp["debug"]["riskRegionsMatched"] = risk_regions
 
     return resp

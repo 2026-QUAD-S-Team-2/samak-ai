@@ -48,17 +48,27 @@ def _build_prompt(
     trust_label: str,
     fraud_probability: float,
     risk_score: int,
+    risk_signals: list[str],
 ) -> str:
     # 요구사항: 출력은 무조건 한국어 유지 + 3문장 구조 고정 + 숫자 변경 금지 + 사실 추가 금지
     rules = (
         "반드시 한국어로만 작성해.\n"
         "새로운 사실/근거를 절대 추가하지 마.\n"
+        "반드시 아래 제공된 신호 목록(riskSignals)과 TEMPLATE 내용만 사용해.\n"
         "숫자(점수/퍼센트)를 절대 변경하지 마.\n"
+        "coef/weight/기여도/계수 같은 내부 모델 값은 절대 언급하지 마.\n"
         "템플릿의 의미/구조를 유지하면서 문장만 자연스럽게 다듬어.\n"
+        "신호는 '…와 같은 표현이 탐지되어' 수준으로만 부드럽게 언급해.\n"
+        "riskSignals가 비어 있으면 '뚜렷한 사기 패턴 표현은 탐지되지 않았습니다' 취지로만 짧게 언급해.\n"
+        "TEMPLATE에 '여행금지 지역' 문장이 포함돼 있으면, 그 문장을 삭제하거나 새로운 지역명을 추가하지 마.\n"
         "최종 결과는 한 문단으로만 반환해."
     )
     _ = trust_score, trust_label, fraud_probability, risk_score
-    return f"{rules}\n\n[TEMPLATE]\n{template_message}\n"
+    sig_lines = []
+    if risk_signals:
+        sig_lines.append("riskSignals: " + ", ".join(risk_signals[:3]))
+    sig_block = "\n".join(sig_lines) if sig_lines else "riskSignals: (none)"
+    return f"{rules}\n\n[SIGNALS]\n{sig_block}\n\n[TEMPLATE]\n{template_message}\n"
 
 
 def polish_with_gemini(
@@ -68,6 +78,7 @@ def polish_with_gemini(
     trust_label: str,
     fraud_probability: float,
     risk_score: int,
+    risk_signals: list[str] | None = None,
     timeout_s: float = 8.0,
 ) -> GeminiPolishResult:
     # 로컬에서는 .env에 GEMINI_API_KEY를 두는 경우가 많아서, 필요 시 1회 로드
@@ -90,6 +101,7 @@ def polish_with_gemini(
         trust_label=trust_label,
         fraud_probability=fraud_probability,
         risk_score=risk_score,
+        risk_signals=list(risk_signals or []),
     )
 
     try:

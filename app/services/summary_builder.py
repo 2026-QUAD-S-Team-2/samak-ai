@@ -13,6 +13,8 @@ def build_template_message(
     trust_score: int,
     risk_score: int,
     ui_trust_label: str,
+    has_signals: bool = False,
+    travel_ban_regions: list[str] | None = None,
 ) -> str:
     # 요구사항: 자연어는 앞으로 무조건 한국어로 고정 (언어 감지와 무관)
     if company_name:
@@ -20,10 +22,21 @@ def build_template_message(
     else:
         s1 = f"AI 신뢰도는 {ui_trust_label} 입니다. 해당 공고는 {trust_score}% 신뢰할 수 있어요."
     s2 = f"텍스트 패턴 분석 결과, 사기 가능성은 {risk_score}% 수준으로 추정됩니다."
-    # 4문장 구조를 맞추기 위해 기존 3번째 문장을 의미 그대로 2문장으로 분리
-    s3 = "다만 AI는 텍스트 기반 판단입니다."
-    s4 = "지원 전 공식 채용 페이지/연락처/요구 사항을 추가로 확인해 주세요."
-    return f"{s1} {s2} {s3} {s4}"
+    s_last = "다만 AI는 텍스트 기반으로 판단하므로, 지원 전 공식 채용 페이지, 연락처, 요구 사항을 추가로 확인해 주세요."
+
+    parts: list[str] = [s1, s2]
+    if has_signals:
+        parts.append("또한, 텍스트에서 사기 패턴으로 해석될 수 있는 표현이 일부 탐지되었습니다.")
+    else:
+        parts.append("뚜렷한 사기 패턴 표현은 탐지되지 않았습니다.")
+
+    # 위험 신호(사기 패턴) 문장 뒤에 여행금지 문장을 붙이고, 마지막에는 안내 문장을 고정
+    regions = [r.strip() for r in (travel_ban_regions or []) if r and r.strip()]
+    if regions:
+        shown = ", ".join(regions[:5])
+        parts.append(f"또한 공고 텍스트에서 대한민국 외교부가 여행금지 지역으로 지정한 국가/지역({shown})이(가) 언급되었습니다.")
+    parts.append(s_last)
+    return " ".join(parts)
 
 
 def validate_polished_message(template: str, candidate: str) -> bool:

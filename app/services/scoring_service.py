@@ -25,7 +25,11 @@ def score_prediction(fraud_probability: float, threshold_used: float) -> Predict
     p = float(max(0.0, min(1.0, fraud_probability)))
     th = float(max(0.0, min(1.0, threshold_used)))
 
-    risk_score = int(round(100 * p))
+    # 반올림 규칙(정수):
+    # - riskScore(=fraudPercent) = round(100 * p)
+    # - trustScore = 100 - riskScore
+    fraud_percent = int(round(100 * p))
+    risk_score = fraud_percent
     # 1) 모델 정책(평가용): threshold 기반
     model_high_th = max(th, 0.7)
     if p >= model_high_th:
@@ -35,7 +39,7 @@ def score_prediction(fraud_probability: float, threshold_used: float) -> Predict
     else:
         model_risk_level = "LOW"
 
-    trust_score = int(max(0, min(100, 100 - risk_score)))
+    trust_score = int(max(0, min(100, 100 - fraud_percent)))
 
     # 2) UI 정책(고정): 확률 구간 기반 (riskLevel과 trustLabel이 모순되지 않게 함께 결정)
     if p < 0.35:

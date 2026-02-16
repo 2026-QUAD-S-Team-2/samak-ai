@@ -1,0 +1,74 @@
+# 대한민국 외교부에서 지정한 여행금지국가/지역
+#
+# Format:
+#   <key>\t<korean_display>
+
+somalia	소말리아
+afghanistan	아프가니스탄
+iraq	이라크
+yemen	예멘
+syria	시리아
+libya	리비아
+ukraine	우크라이나
+sudan	수단
+palestine	팔레스타인
+gaza strip	가자지구
+
+venezuela	베네수엘라
+zulia	술리아주
+tachira	타치라주
+apure	아푸레주
+sucre	수크레주
+haiti	아이티
+
+lebanon	레바논
+southern lebanon	레바논 남부
+nabatieh	나바티예
+blue line	블루라인
+
+israel	이스라엘
+northern israel	이스라엘 북부
+
+laos	라오스
+golden triangle	골든 트라이앵글
+golden triangle special economic zone	골든 트라이앵글 경제특구
+
+myanmar	미얀마
+northern shan	샨주 북부
+eastern shan	샨주 동부
+kachin	카친주
+rakhine	라카인주
+myawaddy	미야와디
+
+cambodia	캄보디아
+kampot	캄폿
+bokor	보코르
+bavet	바벳
+poipet	포이펫
+
+philippines	필리핀
+mindanao	민다나오
+zamboanga	잠보앙가
+sulu	술루
+basilan	바실란
+tawi-tawi	타위타위
+
+niger	니제르
+mali	말리
+democratic republic of the congo	콩고민주공화국
+north kivu	북키부
+south kivu	남키부
+
+russia	러시아
+kursk	쿠르스크
+rostov	로스토프
+belgorod	벨고로드
+voronezh	보로네시
+bryansk	브랸스크
+
+belarus	벨라루스
+brest	브레스트
+gomel	고멜
+
+armenia	아르메니아
+azerbaijan	아제르바이잔

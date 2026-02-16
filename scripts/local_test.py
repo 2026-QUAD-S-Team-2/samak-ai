@@ -19,6 +19,7 @@ if __package__ in {None, ""}:
 
 from app.env import load_dotenv_once
 from app.ml.ml_baseline import BaselineModel
+from app.ml.risk_regions import find_risk_regions
 from app.services.gemini_service import polish_with_gemini
 from app.services.ocr_service import ocr_from_bytes, ocr_from_url
 from app.services.scoring_service import score_prediction
@@ -87,6 +88,8 @@ def main() -> int:
 
     model = BaselineModel.load_default()
     prob = model.predict_proba_from_ocr(ocr.text)
+    risk_signals = model.risk_signals_from_ocr(ocr.text, top_k=3)
+    risk_regions = find_risk_regions(model.get_cleaned_input_from_ocr(ocr.text), top_k=5)
     scores = score_prediction(prob, model.threshold)
 
     print("\n=== 2) ML ===")
@@ -98,12 +101,16 @@ def main() -> int:
     print("- uiRiskLevel:", scores.ui_risk_level)
     print("- trustScore:", scores.trust_score)
     print("- uiTrustLabel:", scores.ui_trust_label)
+    print("- riskSignals:", risk_signals)
+    print("- travelBanRegionsMatched:", risk_regions)
 
     template = build_template_message(
         company_name=args.company_name,
         trust_score=scores.trust_score,
         risk_score=scores.risk_score,
         ui_trust_label=scores.ui_trust_label,
+        has_signals=bool(risk_signals),
+        travel_ban_regions=risk_regions,
     )
     print("\n=== 3) Template ===")
     print(template)
@@ -114,6 +121,7 @@ def main() -> int:
         trust_label=scores.ui_trust_label,
         fraud_probability=prob,
         risk_score=scores.risk_score,
+        risk_signals=risk_signals,
     )
     final_msg = gem.message
 
@@ -141,6 +149,10 @@ def main() -> int:
             "riskLevel": scores.model_risk_level,
             "thresholdUsed": model.threshold,
         },
+        "explanation": {
+            "riskSignals": risk_signals,
+            "note": "Signals are matched against predefined scam-pattern rules.",
+        },
         "ui": {
             "riskLevel": scores.ui_risk_level,
             "trustLabel": scores.ui_trust_label,
@@ -155,12 +167,13 @@ def main() -> int:
     if args.debug:
         out["debug"] = {
             "inputStructured": model.structure_ocr_text(ocr.text),
-            "inputCleaned": model.clean_text(model.structure_ocr_text(ocr.text)),
+            "inputCleaned": model.get_cleaned_input_from_ocr(ocr.text),
             "promptUsed": gem.prompt_used,
             "usedGemini": gem.used_gemini,
             "fallbackToTemplate": gem.fallback_to_template,
             "noChange": gem.no_change,
             "geminiError": gem.error,
+            "explanation": {"riskSignals": risk_signals},
         }
     print("\n=== 5) Final JSON ===")
     print(json.dumps(out, ensure_ascii=False, indent=2))

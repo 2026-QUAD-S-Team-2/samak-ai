@@ -1,0 +1,85 @@
+# Samak AI - Scam Risk Patterns
+#
+# Format:
+#   <label>\t<regex>
+#
+# Notes:
+# - regex is compiled with re.IGNORECASE
+# - matching is done against the model inputCleaned text (lower/whitespace normalized)
+# - returned riskSignals are the matched substrings (group(0)), de-duplicated, top_k only
+
+# =========================
+# 1) 선결제/수수료/보증금
+# =========================
+upfront_fee	\b(registration fee|verification fee|processing fee|training fee|equipment fee|security deposit)\b
+upfront_payment	\b(upfront payment|advance payment|initial payment)\b
+pay_before_start	\b(payment required before start|pay before onboarding)\b
+wire_transfer	\b(wire transfer only)\b
+upfront_ko	선결제|수수료|등록비|보증금|검증비|교육비|처리\s*수수료|장비\s*비용
+bank_verify_ko	계좌\s*인증|계좌\s*확인
+
+# =========================
+# 2) 외부 메신저 유도
+# =========================
+messenger_brand	\b(telegram|whatsapp|wechat|kakao)\b
+messenger_phrases	\b(contact via telegram|switch to telegram|chat on wechat)\b
+whatsapp_phrase	\b(message me on whatsapp|reach out on whatsapp)\b
+private_chat	\b(text me privately|move to private chat)\b
+messenger_ko	카톡|오픈채팅|텔레그램|개인\s*톡|개인\s*채팅
+
+# =========================
+# 3) 암호화폐/기프트카드/송금
+# =========================
+payment_crypto	\b(crypto payment|usdt payment|bitcoin payment|gift card payment)\b
+crypto_brand	\b(crypto|usdt|bitcoin)\b
+gift_card	\b(gift card)\b|상품권|기프트\s*카드
+wire_transfer_ko	송금|계좌\s*송금
+
+# =========================
+# 4) 면접 없음/즉시 채용/비정상적 신속성
+# =========================
+no_interview	\b(no interview required|no interview)\b|면접\s*없음
+no_experience	\b(no experience needed)\b|경력\s*불필요|무경력\s*가능
+instant_hiring	\b(instant hiring|urgent hiring|quick approval|guaranteed selection)\b|즉시\s*채용|긴급\s*채용
+start_now	\b(immediate start|start today|within 24 hours)\b|오늘\s*시작|즉시|지금\s*바로
+respond_fast	\b(respond immediately)\b|즉시\s*답변|바로\s*연락
+
+# =========================
+# 5) 비정상 고수익/단순 업무 고수익
+# =========================
+per_day	\b(per day)\b
+easy_money	\b(easy money|no effort required|risk free income)\b|쉽게\s*돈|쉽게\s*벌기
+wfh_high_income	\b(work from home and earn big|high income guaranteed|daily payout guaranteed)\b|재택\s*고수익|고수익\s*보장|일\s*지급\s*보장
+
+# =========================
+# 6) 개인정보 과다 요구
+# =========================
+passport	\b(send passport copy|passport)\b|여권
+id_photo	\b(provide id photo|id card)\b|신분증\s*사진|주민등록증
+bank_account	\b(bank account details required|bank account)\b|계좌번호|통장\s*사본
+otp	\b(share otp|otp)\b|otp|인증번호
+verification_code	\b(verification code required|verification code)\b|인증\s*코드
+ssn	\b(ssn required|ssn)\b|주민번호
+
+# =========================
+# 7) 비정상 이메일/도메인 패턴
+# =========================
+free_email_domains	@gmail\.com|@yahoo\.com|@outlook\.com
+free_email_phrases	\b(free email domain|non-corporate email)\b|무료\s*메일|개인\s*메일
+
+# =========================
+# 8) 압박 표현
+# =========================
+pressure	\b(act now|limited time only|do not miss this chance|final warning)\b|지금\s*바로|서두르세요|마감\s*임박
+
+# =========================
+# 9) 직무 불명확/추상 표현
+# =========================
+vague_job	\b(simple tasks|online assistant|data processing job|transaction facilitator)\b
+from_home_handling	\b(package handling from home)\b|집에서\s*포장|재택\s*포장
+
+# =========================
+# 10) 법적/비자 사기 패턴
+# =========================
+visa_scam	\b(visa sponsorship guaranteed|guaranteed work permit|immigration processing fee)\b|비자\s*보장|워크\s*퍼밋\s*보장|이민\s*수수료
+
