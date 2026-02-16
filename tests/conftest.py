@@ -14,12 +14,8 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _stable_test_env(monkeypatch: pytest.MonkeyPatch):
-    from app.settings import get_settings
-
     monkeypatch.setenv("ENABLE_MAPS", "false")
     monkeypatch.setenv("ENABLE_GEMINI", "false")
     monkeypatch.delenv("MAPS_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    get_settings.cache_clear()
     yield
-    get_settings.cache_clear()

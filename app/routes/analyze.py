@@ -1,0 +1,214 @@
+from __future__ import annotations
+
+"""
+이미지 기반 공고/채팅 분석 API 라우트.
+
+입력:
+- multipart/form-data: multipartFile (이미지)
+- 또는 application/json: { "imageUrl": "https://..." }
+
+처리:
+이미지 → OCR → ML 추론 → scoring → 템플릿 summary → (옵션) Gemini polish → 응답
+"""
+
+import logging
+from uuid import uuid4
+
+from fastapi import APIRouter, Request
+
+from app.ml.ml_baseline import BaselineModel, ModelArtifactsError
+from app.services.gemini_service import polish_with_gemini
+from app.services.ocr_service import OCRResult, ocr_from_bytes, ocr_from_url
+from app.services.scoring_service import PredictionScores, score_prediction
+from app.services.summary_builder import build_template_message
+from app.services.summary_builder import validate_polished_message
+
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/v1/analyze", tags=["analyze"])
+
+
+def _safe_float(v: object) -> float | None:
+    try:
+        return float(v)  # type: ignore[arg-type]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _get_str(meta: dict[str, object], key: str) -> str | None:
+    v = meta.get(key)
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s or None
+
+
+@router.post("/image")
+async def analyze_image(request: Request, debug: bool = False) -> dict:
+    """
+    POST /v1/analyze/image
+
+    - multipart/form-data: multipartFile (필수) + (옵션) meta fields
+    - application/json: imageUrl (필수) + (옵션) meta fields
+    """
+    content_type = (request.headers.get("content-type") or "").lower()
+
+    image_bytes: bytes | None = None
+    image_url: str | None = None
+    meta: dict[str, object] = {}
+
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        file = form.get("multipartFile")
+        if file is not None:
+            # UploadFile
+            image_bytes = await file.read()  # type: ignore[union-attr]
+        # meta optional
+        for k in ["companyName", "countryCode", "region", "channel", "sourceUrl", "type"]:
+            if k in form:
+                meta[k] = str(form.get(k) or "")
+    else:
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        if isinstance(body, dict):
+            image_url = _get_str(body, "imageUrl")
+            meta_obj = body.get("meta")
+            if isinstance(meta_obj, dict):
+                meta = meta_obj
+            else:
+                # 메타를 최상위로 주는 케이스도 허용(편의)
+                for k in ["companyName", "countryCode", "region", "channel", "sourceUrl", "type"]:
+                    if k in body:
+                        meta[k] = body.get(k)
+
+    if image_bytes is None and not image_url:
+        # 요구사항: 실패해도 200. (백엔드가 UI 표시를 계속 할 수 있게)
+        ocr: OCRResult = OCRResult.empty(error="이미지 파일(multipartFile) 또는 imageUrl이 필요합니다.")
+    else:
+        try:
+            if image_bytes is not None:
+                ocr = ocr_from_bytes(image_bytes)
+            else:
+                ocr = ocr_from_url(image_url or "")
+        except Exception as e:  # noqa: BLE001
+            logger.exception("OCR failed: %s", e)
+            ocr = OCRResult.empty(error=f"OCR 실패: {e}")
+
+    analysis_type = (_get_str(meta, "type") or "JOB_POST").upper()
+    if analysis_type not in {"JOB_POST", "MESSAGE"}:
+        analysis_type = "JOB_POST"
+
+    company_name = _get_str(meta, "companyName")
+
+    # 안전장치: OCR 텍스트가 너무 짧으면 ML 추론을 건너뜁니다.
+    if ocr.text_length < 30:
+        analysis_id = str(uuid4())
+        message = "텍스트 추출에 실패했습니다. 더 선명한 이미지로 다시 시도해 주세요."
+        resp: dict = {
+            "analysisId": analysis_id,
+            "type": analysis_type,
+            "ocr": {
+                "textPreview": ocr.text_preview,
+                "textLength": ocr.text_length,
+                "languageGuess": ocr.language_guess,
+                "confidenceAvg": ocr.confidence_avg,
+            },
+            "mlPrediction": {
+                "modelVersion": "fraud-baseline-v1.0.0",
+                "fraudProbability": None,
+                "riskScore": None,
+                "riskLevel": None,
+                "thresholdUsed": None,
+            },
+            "ui": {"riskLevel": "UNKNOWN", "trustLabel": None, "trustScore": None},
+            "analysisSummary": {"score": None, "label": None, "message": message},
+        }
+        if debug:
+            resp["debug"] = {"ocrError": ocr.error}
+        return resp
+
+    # ML baseline (로컬 아티팩트)
+    try:
+        model = BaselineModel.load_default()
+        fraud_prob = model.predict_proba_from_ocr(ocr.text)
+        threshold_used = model.threshold
+        model_version = model.model_version
+    except ModelArtifactsError as e:
+        # 모델 로딩 실패해도 API는 200을 유지(템플릿 message로 fallback)
+        logger.error("Model load failed: %s", e)
+        fraud_prob = 0.0
+        threshold_used = 0.5
+        model_version = "fraud-baseline-v1.0.0"
+        model = None  # type: ignore[assignment]
+
+    scores: PredictionScores = score_prediction(fraud_prob, threshold_used)
+
+    template_message = build_template_message(
+        company_name=company_name,
+        trust_score=scores.trust_score,
+        risk_score=scores.risk_score,
+        ui_trust_label=scores.ui_trust_label,
+    )
+
+    polished = template_message
+    prompt_used: str | None = None
+    used_gemini = False
+    try:
+        gemini_out = polish_with_gemini(
+            template_message=template_message,
+            trust_score=scores.trust_score,
+            trust_label=scores.ui_trust_label,
+            fraud_probability=fraud_prob,
+            risk_score=scores.risk_score,
+        )
+        prompt_used = gemini_out.prompt_used
+        if gemini_out.message and validate_polished_message(template_message, gemini_out.message):
+            polished = gemini_out.message
+            used_gemini = gemini_out.used_gemini
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Gemini polish failed: %s", e)
+
+    analysis_id = str(uuid4())
+
+    resp: dict = {
+        "analysisId": analysis_id,
+        "type": analysis_type,
+        "ocr": {
+            "textPreview": ocr.text_preview,
+            "textLength": ocr.text_length,
+            "languageGuess": ocr.language_guess,
+            "confidenceAvg": ocr.confidence_avg,
+        },
+        "mlPrediction": {
+            "modelVersion": model_version,
+            "fraudProbability": float(fraud_prob),
+            "riskScore": scores.risk_score,
+            "riskLevel": scores.model_risk_level,
+            "thresholdUsed": float(threshold_used),
+        },
+        "ui": {
+            "riskLevel": scores.ui_risk_level,
+            "trustLabel": scores.ui_trust_label,
+            "trustScore": scores.trust_score,
+        },
+        "analysisSummary": {
+            "score": scores.trust_score,
+            "label": scores.ui_trust_label,
+            "message": polished,
+        },
+    }
+
+    if debug:
+        resp["debug"] = {
+            "usedGemini": used_gemini,
+            "promptUsed": prompt_used,
+            "ocrError": ocr.error,
+        }
+        if model is not None:
+            resp["debug"]["inputStructured"] = model.structure_ocr_text(ocr.text)
+            resp["debug"]["inputCleaned"] = model.clean_text(model.structure_ocr_text(ocr.text))
+
+    return resp
