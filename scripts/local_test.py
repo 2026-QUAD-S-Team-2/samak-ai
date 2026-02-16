@@ -22,7 +22,7 @@ from app.ml.ml_baseline import BaselineModel
 from app.services.gemini_service import polish_with_gemini
 from app.services.ocr_service import ocr_from_bytes, ocr_from_url
 from app.services.scoring_service import score_prediction
-from app.services.summary_builder import build_template_message, validate_polished_message
+from app.services.summary_builder import build_template_message
 
 
 def main() -> int:
@@ -115,15 +115,14 @@ def main() -> int:
         fraud_probability=prob,
         risk_score=scores.risk_score,
     )
-    final_msg = template
-    fallback = True
-    if gem.message and validate_polished_message(template, gem.message):
-        final_msg = gem.message
-        fallback = False
+    final_msg = gem.message
 
     print("\n=== 4) Gemini ===")
     print("- used_gemini:", gem.used_gemini)
-    print("- fallback_to_template:", fallback)
+    print("- fallback_to_template:", gem.fallback_to_template)
+    print("- no_change:", gem.no_change)
+    if gem.error:
+        print("- error:", gem.error)
     print(final_msg)
 
     out = {
@@ -158,6 +157,10 @@ def main() -> int:
             "inputStructured": model.structure_ocr_text(ocr.text),
             "inputCleaned": model.clean_text(model.structure_ocr_text(ocr.text)),
             "promptUsed": gem.prompt_used,
+            "usedGemini": gem.used_gemini,
+            "fallbackToTemplate": gem.fallback_to_template,
+            "noChange": gem.no_change,
+            "geminiError": gem.error,
         }
     print("\n=== 5) Final JSON ===")
     print(json.dumps(out, ensure_ascii=False, indent=2))

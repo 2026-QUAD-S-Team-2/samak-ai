@@ -21,7 +21,6 @@ from app.services.gemini_service import polish_with_gemini
 from app.services.ocr_service import OCRResult, ocr_from_bytes, ocr_from_url
 from app.services.scoring_service import PredictionScores, score_prediction
 from app.services.summary_builder import build_template_message
-from app.services.summary_builder import validate_polished_message
 
 
 logger = logging.getLogger(__name__)
@@ -156,6 +155,9 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
     polished = template_message
     prompt_used: str | None = None
     used_gemini = False
+    fallback_to_template = True
+    no_change = False
+    gemini_error: str | None = None
     try:
         gemini_out = polish_with_gemini(
             template_message=template_message,
@@ -165,9 +167,11 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
             risk_score=scores.risk_score,
         )
         prompt_used = gemini_out.prompt_used
-        if gemini_out.message and validate_polished_message(template_message, gemini_out.message):
-            polished = gemini_out.message
-            used_gemini = gemini_out.used_gemini
+        polished = gemini_out.message
+        used_gemini = gemini_out.used_gemini
+        fallback_to_template = gemini_out.fallback_to_template
+        no_change = gemini_out.no_change
+        gemini_error = gemini_out.error
     except Exception as e:  # noqa: BLE001
         logger.exception("Gemini polish failed: %s", e)
 
@@ -204,7 +208,10 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
     if debug:
         resp["debug"] = {
             "usedGemini": used_gemini,
+            "fallbackToTemplate": fallback_to_template,
+            "noChange": no_change,
             "promptUsed": prompt_used,
+            "geminiError": gemini_error,
             "ocrError": ocr.error,
         }
         if model is not None:
