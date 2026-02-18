@@ -31,6 +31,10 @@
 - `GEMINI_API_KEY` (있으면 요약 문장을 Gemini가 다듬음, 실패 시 템플릿 문장 그대로 반환)
 - `GEMINI_MODEL` (기본 `gemini-2.5-flash`)
 
+## 백엔드 Push 설정(하드코딩)
+
+분석 결과를 백엔드로 자동 전송(push)하려면 `app/backend_push_config.py`를 수정하세요.
+
 <br>
 
 ## Quick local test (no backend)
@@ -52,6 +56,18 @@ Response:
 { "status": "ok" }
 ```
 
+### Swagger / OpenAPI
+
+- Swagger UI: `/docs`
+- OpenAPI JSON: `/openapi.json`
+- ReDoc: `/redoc`
+
+서버 없이 스펙 파일만 공유하려면:
+
+```bash
+python3 scripts/export_openapi.py --out openapi.json
+```
+
 ### `POST /v1/analyze/image`
 
 Request (A: JSON / imageUrl):
@@ -66,16 +82,12 @@ Response:
 ```json
 {
   "analysisId": "uuid",
-  "type": "JOB_POST|MESSAGE",
-  "ocr": { "textPreview": "…", "textLength": 1234, "languageGuess": "ko|en", "confidenceAvg": 0.81 },
-  "mlPrediction": {
-    "modelVersion": "fraud-baseline-v1.0.0",
-    "fraudProbability": 0.42,
-    "riskScore": 42,
-    "riskLevel": "LOW|MEDIUM|HIGH",
-    "thresholdUsed": 0.346
-  },
-  "analysisSummary": { "score": 58, "label": "Warning", "message": "화면 표시용 문장(3문장)" }
+  "fraudProbability": 0.87,
+  "riskScore": 87,
+  "riskLevel": "HIGH",
+  "riskSignals": ["bitcoin", "upfront payment"],
+  "travelBanRegionsMatched": ["우크라이나"],
+  "message": "..."
 }
 ```
 

@@ -16,7 +16,10 @@ def test_analyze_image_missing_input_returns_200_with_template() -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert "analysisId" in data
-    assert data["type"] in {"JOB_POST", "MESSAGE"}
-    assert data["ocr"]["textLength"] == 0
-    assert isinstance(data["analysisSummary"]["message"], str)
-    assert data["analysisSummary"]["message"].strip() != ""
+    assert data["riskLevel"] == "UNKNOWN"
+    assert data["fraudProbability"] is None
+    assert data["riskScore"] is None
+    assert data["riskSignals"] == []
+    assert data["travelBanRegionsMatched"] == []
+    assert isinstance(data["message"], str)
+    assert data["message"].strip() != ""

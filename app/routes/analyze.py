@@ -14,10 +14,12 @@ from __future__ import annotations
 import logging
 from uuid import uuid4
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, BackgroundTasks, Request
 
+from app.api_models import AnalyzeImageResponse
 from app.ml.ml_baseline import BaselineModel, ModelArtifactsError
 from app.ml.risk_regions import find_risk_regions
+from app.services.backend_push import push_analysis_result
 from app.services.gemini_service import polish_with_gemini
 from app.services.ocr_service import OCRResult, ocr_from_bytes, ocr_from_url
 from app.services.scoring_service import PredictionScores, score_prediction
@@ -44,8 +46,8 @@ def _get_str(meta: dict[str, object], key: str) -> str | None:
     return s or None
 
 
-@router.post("/image")
-async def analyze_image(request: Request, debug: bool = False) -> dict:
+@router.post("/image", response_model=AnalyzeImageResponse)
+async def analyze_image(request: Request, debug: bool = False, background_tasks: BackgroundTasks = None) -> dict:
     """
     POST /v1/analyze/image
 
@@ -109,29 +111,18 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
         message = "텍스트 추출에 실패했습니다. 더 선명한 이미지로 다시 시도해 주세요."
         resp: dict = {
             "analysisId": analysis_id,
-            "type": analysis_type,
-            "ocr": {
-                "textPreview": ocr.text_preview,
-                "textLength": ocr.text_length,
-                "languageGuess": ocr.language_guess,
-                "confidenceAvg": ocr.confidence_avg,
-            },
-            "mlPrediction": {
-                "modelVersion": "fraud-baseline-v1.0.0",
-                "fraudProbability": None,
-                "riskScore": None,
-                "riskLevel": None,
-                "thresholdUsed": None,
-            },
-            "explanation": {
-                "riskSignals": [],
-                "note": "Signals are matched against predefined scam-pattern rules.",
-            },
-            "ui": {"riskLevel": "UNKNOWN", "trustLabel": None, "trustScore": None},
-            "analysisSummary": {"score": None, "label": None, "message": message},
+            "fraudProbability": None,
+            "riskScore": None,
+            "riskLevel": "UNKNOWN",
+            "riskSignals": [],
+            "travelBanRegionsMatched": [],
+            "message": message,
         }
-        if debug:
-            resp["debug"] = {"ocrError": ocr.error}
+        # 백엔드로 push (실패해도 응답은 유지)
+        if background_tasks is not None:
+            background_tasks.add_task(push_analysis_result, resp)
+        else:
+            push_analysis_result(resp)
         return resp
 
     # ML baseline (로컬 아티팩트)
@@ -142,7 +133,6 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
         cleaned_input = model.get_cleaned_input_from_ocr(ocr.text)
         risk_regions = find_risk_regions(cleaned_input, top_k=5)
         threshold_used = model.threshold
-        model_version = model.model_version
     except ModelArtifactsError as e:
         # 모델 로딩 실패해도 API는 200을 유지(템플릿 message로 fallback)
         logger.error("Model load failed: %s", e)
@@ -150,7 +140,6 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
         risk_signals = []
         risk_regions = []
         threshold_used = 0.5
-        model_version = "fraud-baseline-v1.0.0"
         model = None  # type: ignore[assignment]
 
     scores: PredictionScores = score_prediction(fraud_prob, threshold_used)
@@ -192,49 +181,30 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
 
     resp: dict = {
         "analysisId": analysis_id,
-        "type": analysis_type,
-        "ocr": {
-            "textPreview": ocr.text_preview,
-            "textLength": ocr.text_length,
-            "languageGuess": ocr.language_guess,
-            "confidenceAvg": ocr.confidence_avg,
-        },
-        "mlPrediction": {
-            "modelVersion": model_version,
-            "fraudProbability": float(fraud_prob),
-            "riskScore": scores.risk_score,
-            "riskLevel": scores.model_risk_level,
-            "thresholdUsed": float(threshold_used),
-        },
-        "explanation": {
-            "riskSignals": risk_signals,
-            "note": "Signals are matched against predefined scam-pattern rules.",
-        },
-        "ui": {
-            "riskLevel": scores.ui_risk_level,
-            "trustLabel": scores.ui_trust_label,
-            "trustScore": scores.trust_score,
-        },
-        "analysisSummary": {
-            "score": scores.trust_score,
-            "label": scores.ui_trust_label,
-            "message": polished,
-        },
+        "fraudProbability": float(fraud_prob),
+        "riskScore": scores.risk_score,
+        "riskLevel": scores.ui_risk_level,
+        "riskSignals": risk_signals,
+        "travelBanRegionsMatched": risk_regions,
+        "message": polished,
     }
 
+    # 백엔드로 push (실패해도 응답은 유지). 응답 지연을 줄이기 위해 background task로 실행.
+    if background_tasks is not None:
+        background_tasks.add_task(push_analysis_result, resp)
+    else:
+        push_analysis_result(resp)
+
     if debug:
-        resp["debug"] = {
-            "usedGemini": used_gemini,
-            "fallbackToTemplate": fallback_to_template,
-            "noChange": no_change,
-            "promptUsed": prompt_used,
-            "geminiError": gemini_error,
-            "ocrError": ocr.error,
-        }
-        if model is not None:
-            resp["debug"]["inputStructured"] = model.structure_ocr_text(ocr.text)
-            resp["debug"]["inputCleaned"] = model.get_cleaned_input_from_ocr(ocr.text)
-            resp["debug"]["explanation"] = {"riskSignals": risk_signals}
-            resp["debug"]["riskRegionsMatched"] = risk_regions
+        # 응답 스키마는 flat JSON로 고정하고, 디버그는 로그로만 남깁니다.
+        logger.info(
+            "debug: usedGemini=%s fallback=%s noChange=%s geminiError=%s ocrError=%s promptUsed_len=%s",
+            used_gemini,
+            fallback_to_template,
+            no_change,
+            gemini_error,
+            ocr.error,
+            len(prompt_used or ""),
+        )
 
     return resp
