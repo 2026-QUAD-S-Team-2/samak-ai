@@ -5,7 +5,7 @@ FastAPI 엔트리포인트.
 
 MVP: "이미지 기반 공고/채팅 분석 + Gemini 자연어 생성"
 
-- /v1/analyze/image: image(multipart) 또는 imageUrl(JSON) 입력 → OCR → ML → 점수 → 요약문 생성
+- /v1/analyze/image: imageUrl(JSON) 입력 → 이미지 다운로드 → OCR → ML → 점수 → 요약문 생성
 - /healthz: 헬스체크
 
 주의:

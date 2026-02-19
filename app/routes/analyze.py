@@ -4,24 +4,25 @@ from __future__ import annotations
 이미지 기반 공고/채팅 분석 API 라우트.
 
 입력:
-- multipart/form-data: multipartFile (이미지)
-- 또는 application/json: { "imageUrl": "https://..." }
+- application/json: { "imageUrl": "https://..." }
 
 처리:
 이미지 → OCR → ML 추론 → scoring → 템플릿 summary → (옵션) Gemini polish → 응답
 """
 
 import logging
+from urllib.parse import urlparse
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Request
+import httpx
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
-from app.api_models import AnalyzeImageResponse
+from app.api_models import AnalyzeImageRequest, AnalyzeImageResponse
 from app.ml.ml_baseline import BaselineModel, ModelArtifactsError
 from app.ml.risk_regions import find_risk_regions
 from app.services.backend_push import push_analysis_result
 from app.services.gemini_service import polish_with_gemini
-from app.services.ocr_service import OCRResult, ocr_from_bytes, ocr_from_url
+from app.services.ocr_service import ocr_from_bytes
 from app.services.scoring_service import PredictionScores, score_prediction
 from app.services.summary_builder import build_template_message
 
@@ -31,79 +32,61 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/analyze", tags=["analyze"])
 
 
-def _safe_float(v: object) -> float | None:
+def _is_valid_image_url(url: str) -> bool:
     try:
-        return float(v)  # type: ignore[arg-type]
+        p = urlparse(url)
     except Exception:  # noqa: BLE001
-        return None
+        return False
+    if p.scheme not in {"http", "https"}:
+        return False
+    if not p.netloc:
+        return False
+    return True
 
 
-def _get_str(meta: dict[str, object], key: str) -> str | None:
-    v = meta.get(key)
-    if v is None:
-        return None
-    s = str(v).strip()
-    return s or None
+async def _download_image_bytes(image_url: str) -> bytes:
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.get(image_url)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"이미지 다운로드 실패: {e}") from e
+
+    if resp.status_code < 200 or resp.status_code >= 300:
+        raise HTTPException(status_code=400, detail=f"이미지 다운로드 실패: HTTP {resp.status_code}")
+
+    content_type = (resp.headers.get("content-type") or "").lower()
+    if content_type and not content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail=f"이미지 다운로드 실패: content-type={content_type}")
+
+    data = resp.content or b""
+    if not data:
+        raise HTTPException(status_code=400, detail="이미지 다운로드 실패: empty body")
+    return data
 
 
 @router.post("/image", response_model=AnalyzeImageResponse)
-async def analyze_image(request: Request, debug: bool = False, background_tasks: BackgroundTasks = None) -> dict:
+async def analyze_image(payload: AnalyzeImageRequest, background_tasks: BackgroundTasks) -> dict:
     """
     POST /v1/analyze/image
 
-    - multipart/form-data: multipartFile (필수) + (옵션) meta fields
-    - application/json: imageUrl (필수) + (옵션) meta fields
+    - application/json: imageUrl (필수)
     """
-    content_type = (request.headers.get("content-type") or "").lower()
+    image_url = (payload.imageUrl or "").strip()
+    if not _is_valid_image_url(image_url):
+        raise HTTPException(status_code=400, detail="imageUrl이 올바르지 않습니다. (http/https URL 필요)")
 
-    image_bytes: bytes | None = None
-    image_url: str | None = None
-    meta: dict[str, object] = {}
+    image_bytes = await _download_image_bytes(image_url)
 
-    if content_type.startswith("multipart/form-data"):
-        form = await request.form()
-        file = form.get("multipartFile")
-        if file is not None:
-            # UploadFile
-            image_bytes = await file.read()  # type: ignore[union-attr]
-        # meta optional
-        for k in ["companyName", "countryCode", "region", "channel", "sourceUrl", "type"]:
-            if k in form:
-                meta[k] = str(form.get(k) or "")
-    else:
-        try:
-            body = await request.json()
-        except Exception:  # noqa: BLE001
-            body = {}
-        if isinstance(body, dict):
-            image_url = _get_str(body, "imageUrl")
-            meta_obj = body.get("meta")
-            if isinstance(meta_obj, dict):
-                meta = meta_obj
-            else:
-                # 메타를 최상위로 주는 케이스도 허용(편의)
-                for k in ["companyName", "countryCode", "region", "channel", "sourceUrl", "type"]:
-                    if k in body:
-                        meta[k] = body.get(k)
+    try:
+        ocr = ocr_from_bytes(image_bytes)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("OCR failed: %s", e)
+        # 기존 비즈니스 로직 유지: OCR 실패 자체는 200 응답으로 처리(UNKNOWN)
+        from app.services.ocr_service import OCRResult  # local import to avoid unused import in happy path
 
-    if image_bytes is None and not image_url:
-        # 요구사항: 실패해도 200. (백엔드가 UI 표시를 계속 할 수 있게)
-        ocr: OCRResult = OCRResult.empty(error="이미지 파일(multipartFile) 또는 imageUrl이 필요합니다.")
-    else:
-        try:
-            if image_bytes is not None:
-                ocr = ocr_from_bytes(image_bytes)
-            else:
-                ocr = ocr_from_url(image_url or "")
-        except Exception as e:  # noqa: BLE001
-            logger.exception("OCR failed: %s", e)
-            ocr = OCRResult.empty(error=f"OCR 실패: {e}")
+        ocr = OCRResult.empty(error=f"OCR 실패: {e}")
 
-    analysis_type = (_get_str(meta, "type") or "JOB_POST").upper()
-    if analysis_type not in {"JOB_POST", "MESSAGE"}:
-        analysis_type = "JOB_POST"
-
-    company_name = _get_str(meta, "companyName")
+    company_name = None
 
     # 안전장치: OCR 텍스트가 너무 짧으면 ML 추론을 건너뜁니다.
     if ocr.text_length < 30:
@@ -119,10 +102,7 @@ async def analyze_image(request: Request, debug: bool = False, background_tasks:
             "message": message,
         }
         # 백엔드로 push (실패해도 응답은 유지)
-        if background_tasks is not None:
-            background_tasks.add_task(push_analysis_result, resp)
-        else:
-            push_analysis_result(resp)
+        background_tasks.add_task(push_analysis_result, resp)
         return resp
 
     # ML baseline (로컬 아티팩트)
@@ -190,12 +170,9 @@ async def analyze_image(request: Request, debug: bool = False, background_tasks:
     }
 
     # 백엔드로 push (실패해도 응답은 유지). 응답 지연을 줄이기 위해 background task로 실행.
-    if background_tasks is not None:
-        background_tasks.add_task(push_analysis_result, resp)
-    else:
-        push_analysis_result(resp)
+    background_tasks.add_task(push_analysis_result, resp)
 
-    if debug:
+    if payload.debug:
         # 응답 스키마는 flat JSON로 고정하고, 디버그는 로그로만 남깁니다.
         logger.info(
             "debug: usedGemini=%s fallback=%s noChange=%s geminiError=%s ocrError=%s promptUsed_len=%s",

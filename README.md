@@ -9,7 +9,7 @@
 입력은 **무조건 이미지(채팅 캡처/공고 캡처)** 입니다.
 
 파이프라인:
-이미지(URL 또는 multipart) → OCR(EasyOCR) → ML baseline(TF‑IDF+LR) → 위험도 점수/레벨 산출 → Gemini로 자연어 문장 생성 → JSON 반환
+이미지 URL(JSON) → 이미지 다운로드 → OCR(EasyOCR) → ML baseline(TF‑IDF+LR) → 위험도 점수/레벨 산출 → Gemini로 자연어 문장 생성 → JSON 반환
 
 <br>
 
@@ -70,11 +70,11 @@ python3 scripts/export_openapi.py --out openapi.json
 
 ### `POST /v1/analyze/image`
 
-Request (A: JSON / imageUrl):
+Request (JSON only):
 ```json
 {
-  "imageUrl": "https://...",
-  "meta": { "companyName": "삼성중공업", "countryCode": "KR", "sourceUrl": "https://..." }
+  "imageUrl": "https://example.com/sample.png",
+  "debug": false
 }
 ```
 
@@ -114,7 +114,7 @@ docker run --rm -p 8000:8000 -e MODEL_DIR=/app/models/fraud-baseline samak-ai
 ```bash
 curl -sS http://localhost:8000/v1/analyze/image \
   -H 'content-type: application/json' \
-  -d '{"imageUrl":"https://example.com/sample.png","meta":{"companyName":"OO","countryCode":"KR"}}'
+  -d '{"imageUrl":"https://example.com/sample.png","debug":false}'
 ```
 
 <br>

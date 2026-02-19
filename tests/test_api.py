@@ -10,16 +10,28 @@ def test_healthz_ok() -> None:
     assert resp.json() == {"status": "ok"}
 
 
-def test_analyze_image_missing_input_returns_200_with_template() -> None:
+def test_analyze_image_missing_body_returns_422() -> None:
     with TestClient(app) as client:
         resp = client.post("/v1/analyze/image", json={})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "analysisId" in data
-    assert data["riskLevel"] == "UNKNOWN"
-    assert data["fraudProbability"] is None
-    assert data["riskScore"] is None
-    assert data["riskSignals"] == []
-    assert data["travelBanRegionsMatched"] == []
-    assert isinstance(data["message"], str)
-    assert data["message"].strip() != ""
+    assert resp.status_code == 422
+
+
+def test_analyze_image_invalid_url_returns_400() -> None:
+    with TestClient(app) as client:
+        resp = client.post("/v1/analyze/image", json={"imageUrl": "not-a-url", "debug": False})
+    assert resp.status_code == 400
+
+
+def test_analyze_image_download_fail_returns_400(monkeypatch) -> None:
+    from fastapi import HTTPException
+
+    import app.routes.analyze as analyze_route
+
+    async def _fail(_url: str) -> bytes:
+        raise HTTPException(status_code=400, detail="이미지 다운로드 실패: test")
+
+    monkeypatch.setattr(analyze_route, "_download_image_bytes", _fail)
+
+    with TestClient(app) as client:
+        resp = client.post("/v1/analyze/image", json={"imageUrl": "https://example.com/sample.png", "debug": False})
+    assert resp.status_code == 400

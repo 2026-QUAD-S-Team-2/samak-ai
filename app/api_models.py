@@ -9,13 +9,37 @@ Swagger(OpenAPI) 문서용 응답 스키마.
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # Swagger에서 enum으로 노출되도록 Literal로 고정합니다.
 # - CRITICAL: (선택) 향후 정책 확장용
 # - UNKNOWN: OCR 실패 등으로 판단 불가 케이스
 RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL", "UNKNOWN"]
+
+
+class AnalyzeImageRequest(BaseModel):
+    imageUrl: str = Field(
+        ...,
+        description="분석할 이미지 URL (http/https). 파일 업로드는 지원하지 않습니다.",
+        examples=["https://example.com/sample.png"],
+    )
+    debug: bool = Field(
+        default=False,
+        description="true면 서버 로그에 디버그 정보를 남깁니다(응답 스키마는 변경되지 않음).",
+        examples=[False],
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "imageUrl": "https://example.com/sample.png",
+                    "debug": False,
+                }
+            ]
+        }
+    )
 
 
 class AnalyzeImageResponse(BaseModel):
