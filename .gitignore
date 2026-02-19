@@ -25,3 +25,10 @@ models/**/model*.joblib
 models/**/classifier*.joblib
 models/**/calibrator*.joblib
 models/**/metadata.json
+
+# Track MVP baseline artifacts in git (small files only)
+!models/
+!models/fraud-baseline/
+!models/fraud-baseline/vectorizer.joblib
+!models/fraud-baseline/model.joblib
+!models/fraud-baseline/metadata.json

@@ -40,3 +40,9 @@ app.include_router(analyze_router)
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok"}
+
+
+# 백엔드/인프라에서 `/health`로 확인하는 경우도 많아서 alias를 제공합니다.
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok"}
