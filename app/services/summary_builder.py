@@ -22,8 +22,6 @@ def build_template_message(
     else:
         s1 = f"AI 신뢰도는 {ui_trust_label} 입니다. 해당 공고는 {trust_score}% 신뢰할 수 있어요."
     s2 = f"텍스트 패턴 분석 결과, 사기 가능성은 {risk_score}% 수준으로 추정됩니다."
-    s_last = "다만 AI는 텍스트 기반으로 판단하므로, 지원 전 공식 채용 페이지, 연락처, 요구 사항을 추가로 확인해 주세요."
-
     parts: list[str] = [s1, s2]
     if has_signals:
         parts.append("또한, 텍스트에서 사기 패턴으로 해석될 수 있는 표현이 일부 탐지되었습니다.")
@@ -35,7 +33,6 @@ def build_template_message(
     if regions:
         shown = ", ".join(regions[:5])
         parts.append(f"또한 공고 텍스트에서 대한민국 외교부가 여행금지 지역으로 지정한 국가/지역({shown})이(가) 언급되었습니다.")
-    parts.append(s_last)
     return " ".join(parts)
 
 
