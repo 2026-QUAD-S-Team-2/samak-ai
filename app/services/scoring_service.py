@@ -21,6 +21,15 @@ class PredictionScores:
     ui_trust_label: str  # Good|Warning|Danger
 
 
+def ui_policy_from_probability(fraud_probability: float) -> tuple[str, str]:
+    p = float(max(0.0, min(1.0, fraud_probability)))
+    if p < 0.35:
+        return "LOW", "Good"
+    if p < 0.65:
+        return "MEDIUM", "Warning"
+    return "HIGH", "Danger"
+
+
 def score_prediction(fraud_probability: float, threshold_used: float) -> PredictionScores:
     p = float(max(0.0, min(1.0, fraud_probability)))
     th = float(max(0.0, min(1.0, threshold_used)))
@@ -42,15 +51,7 @@ def score_prediction(fraud_probability: float, threshold_used: float) -> Predict
     trust_score = int(max(0, min(100, 100 - fraud_percent)))
 
     # 2) UI 정책(고정): 확률 구간 기반 (riskLevel과 trustLabel이 모순되지 않게 함께 결정)
-    if p < 0.35:
-        ui_risk_level = "LOW"
-        ui_trust_label = "Good"
-    elif p < 0.65:
-        ui_risk_level = "MEDIUM"
-        ui_trust_label = "Warning"
-    else:
-        ui_risk_level = "HIGH"
-        ui_trust_label = "Danger"
+    ui_risk_level, ui_trust_label = ui_policy_from_probability(p)
 
     return PredictionScores(
         risk_score=risk_score,

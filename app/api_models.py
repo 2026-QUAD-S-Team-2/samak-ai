@@ -31,8 +31,9 @@ class AnalyzeImageRequest(BaseModel):
         description='요청 국가 코드(ISO 3166-1 alpha-2). 예: "KR", "UA"',
         examples=["UA"],
     )
-    salary: str | None = Field(
+    salaryText: str | None = Field(
         default=None,
+        validation_alias=AliasChoices("salaryText", "salary"),
         description='(옵션) 급여 문자열. 예: "3000000 KRW", "$300/day". 값은 그대로 사용됩니다.',
         examples=["3000000 KRW"],
     )
@@ -78,7 +79,7 @@ class AnalyzeImageRequest(BaseModel):
                     "debug": False,
                     "imageUrls": ["https://example.com/sample.png"],
                     "countryCode": "UA",
-                    "salary": "3000000 KRW",
+                    "salaryText": "3000000 KRW",
                 },
                 {
                     "debug": False,
@@ -116,3 +117,44 @@ class AnalyzeImagesResponse(BaseModel):
         default_factory=list,
         description="이미지별 분석 결과 목록(요청 순서 보장).",
     )
+
+
+class WageWarningRequest(BaseModel):
+    countryCode: str = Field(
+        ...,
+        description='요청 국가 코드(ISO 3166-1 alpha-2). 예: "KR", "UA"',
+        examples=["UA"],
+    )
+    salaryText: str | None = Field(
+        default=None,
+        description='(옵션) 시급(hourly) 기준 급여 텍스트(통화 포함). 예: "KRW 12000/h", "₩12,000/hour", "USD 25/h"',
+        examples=["UAH 150/h"],
+    )
+
+    @field_validator("countryCode", mode="before")
+    @classmethod
+    def _normalize_country_code(cls, v: Any) -> str:
+        t = str(v or "").strip().upper()
+        if len(t) != 2 or not t.isalpha():
+            raise ValueError("countryCode must be ISO 3166-1 alpha-2 (2 letters), e.g. 'KR'")
+        return t
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"countryCode": "UA", "salaryText": "UAH 150/h"},
+                {"countryCode": "KR", "salaryText": "KRW 12000/hour"},
+                {"countryCode": "UA"},
+            ]
+        }
+    )
+
+
+class WageWarningData(BaseModel):
+    warningMessage: str
+
+
+class WageWarningResponse(BaseModel):
+    code: str
+    message: str
+    data: WageWarningData

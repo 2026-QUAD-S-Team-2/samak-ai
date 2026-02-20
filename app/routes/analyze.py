@@ -24,8 +24,9 @@ from app.ml.risk_regions import match_risk_regions_by_country_code
 from app.services.backend_push import push_analysis_result
 from app.services.gemini_service import polish_with_gemini
 from app.services.ocr_service import ocr_from_bytes
-from app.services.scoring_service import PredictionScores, score_prediction
+from app.services.scoring_service import PredictionScores, score_prediction, ui_policy_from_probability
 from app.services.summary_builder import build_template_message
+from app.services.wage_service import WageScores, apply_wage_adjustments, cap_scores, decide_wage_warning
 
 
 logger = logging.getLogger(__name__)
@@ -85,9 +86,11 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
     country_code = payload.countryCode
     travel_ban_matched = match_risk_regions_by_country_code(country_code)
 
-    salary_raw = payload.salary
-    has_salary = salary_raw is not None and str(salary_raw).strip() != ""
-    salary_line = f"\n[salary] {str(salary_raw)}" if has_salary else ""
+    salary_text = payload.salaryText
+    has_salary = salary_text is not None and str(salary_text).strip() != ""
+    salary_line = f"\n[salary] {str(salary_text)}" if has_salary else ""
+
+    wage_decision = await decide_wage_warning(country_code=country_code, salary_text=salary_text)
 
     async def _analyze_one_image_url(image_url: str) -> dict:
         image_bytes = await _download_image_bytes(image_url)
@@ -143,14 +146,27 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
             base_risk_score = int(min(99, round(base_risk_score * 1.15)))
         trust_score = int(min(99, max(0, 100 - base_risk_score)))
 
+        # 임금 경고 기반 점수 조정(점수 None-safe)
+        adjusted = apply_wage_adjustments(
+            scores=WageScores(risk_score=base_risk_score, trust_score=trust_score, fraud_probability=float(fraud_prob)),
+            warning_kind=wage_decision.warning_kind,
+        )
+        adjusted = cap_scores(adjusted)
+        base_risk_score = adjusted.risk_score if adjusted.risk_score is not None else base_risk_score
+        trust_score = adjusted.trust_score if adjusted.trust_score is not None else trust_score
+        fraud_prob = adjusted.fraud_probability if adjusted.fraud_probability is not None else fraud_prob
+        ui_risk_level, ui_trust_label = ui_policy_from_probability(float(fraud_prob))
+
         template_message = build_template_message(
             company_name=company_name,
             trust_score=trust_score,
             risk_score=base_risk_score,
-            ui_trust_label=scores.ui_trust_label,
+            ui_trust_label=ui_trust_label,
             has_signals=bool(risk_signals),
             travel_ban_regions=travel_ban_matched,
         )
+        if has_salary:
+            template_message = template_message + " " + wage_decision.warning_message
 
         polished = template_message
         prompt_used: str | None = None
@@ -180,9 +196,9 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
 
         resp: dict = {
             "analysisId": analysis_id,
-            "fraudProbability": float(fraud_prob),
+            "fraudProbability": float(min(0.99, max(0.0, float(fraud_prob)))),
             "riskScore": base_risk_score,
-            "riskLevel": scores.ui_risk_level,
+            "riskLevel": ui_risk_level,
             "riskSignals": risk_signals,
             "travelBanRegionsMatched": travel_ban_matched,
             "message": polished,

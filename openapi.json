@@ -55,6 +55,47 @@
         }
       }
     },
+    "/v1/wage-warning": {
+      "post": {
+        "tags": [
+          "wage"
+        ],
+        "summary": "Wage Warning",
+        "operationId": "wage_warning_v1_wage_warning_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WageWarningRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WageWarningResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/healthz": {
       "get": {
         "summary": "Healthz",
@@ -122,7 +163,7 @@
               "UA"
             ]
           },
-          "salary": {
+          "salaryText": {
             "anyOf": [
               {
                 "type": "string"
@@ -131,7 +172,7 @@
                 "type": "null"
               }
             ],
-            "title": "Salary",
+            "title": "Salarytext",
             "description": "(옵션) 급여 문자열. 예: \"3000000 KRW\", \"$300/day\". 값은 그대로 사용됩니다.",
             "examples": [
               "3000000 KRW"
@@ -160,7 +201,7 @@
             "imageUrls": [
               "https://example.com/sample.png"
             ],
-            "salary": "3000000 KRW"
+            "salaryText": "3000000 KRW"
           },
           {
             "countryCode": "KR",
@@ -312,6 +353,86 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WageWarningData": {
+        "properties": {
+          "warningMessage": {
+            "type": "string",
+            "title": "Warningmessage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "warningMessage"
+        ],
+        "title": "WageWarningData"
+      },
+      "WageWarningRequest": {
+        "properties": {
+          "countryCode": {
+            "type": "string",
+            "title": "Countrycode",
+            "description": "요청 국가 코드(ISO 3166-1 alpha-2). 예: \"KR\", \"UA\"",
+            "examples": [
+              "UA"
+            ]
+          },
+          "salaryText": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Salarytext",
+            "description": "(옵션) 시급(hourly) 기준 급여 텍스트(통화 포함). 예: \"KRW 12000/h\", \"₩12,000/hour\", \"USD 25/h\"",
+            "examples": [
+              "UAH 150/h"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "countryCode"
+        ],
+        "title": "WageWarningRequest",
+        "examples": [
+          {
+            "countryCode": "UA",
+            "salaryText": "UAH 150/h"
+          },
+          {
+            "countryCode": "KR",
+            "salaryText": "KRW 12000/hour"
+          },
+          {
+            "countryCode": "UA"
+          }
+        ]
+      },
+      "WageWarningResponse": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WageWarningData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "WageWarningResponse"
       }
     }
   }

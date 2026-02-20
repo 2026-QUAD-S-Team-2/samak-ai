@@ -19,6 +19,7 @@ import os
 
 from app.env import load_dotenv_once
 from app.routes.analyze import router as analyze_router
+from app.routes.wage_warning import router as wage_warning_router
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ _configure_logging()
 
 app = FastAPI(title="Samak AI - Image Analyze MVP", version="0.1.0")
 app.include_router(analyze_router)
+app.include_router(wage_warning_router)
 
 
 @app.get("/healthz")

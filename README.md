@@ -71,14 +71,14 @@ python3 scripts/export_openapi.py --out openapi.json
 ### `POST /v1/analyze/image`
 
 Request (JSON only):
-```json
-{
-  "debug": false,
-  "imageUrls": ["https://example.com/sample.png"],
-  "countryCode": "UA",
-  "salary": "3000000 KRW"
-}
-```
+	```json
+	{
+	  "debug": false,
+	  "imageUrls": ["https://example.com/sample.png"],
+	  "countryCode": "UA",
+	  "salaryText": "3000000 KRW"
+	}
+	```
 
 Response:
 ```json
@@ -133,10 +133,42 @@ docker run --rm -p 8000:8000 -e MODEL_DIR=/app/models/fraud-baseline samak-ai
 
 ## cURL example
 
+	```bash
+	curl -sS http://localhost:8000/v1/analyze/image \
+	  -H 'content-type: application/json' \
+	  -d '{"imageUrls":["https://example.com/sample.png"],"countryCode":"UA","salaryText":"3000000 KRW","debug":false}'
+	```
+
+	<br>
+
+### `POST /v1/wage-warning`
+
+설명:
+- `salaryText`가 없으면 경고를 생성할 수 없다는 안내만 반환하며 점수 조정은 없습니다.
+- `salaryText`는 **시급(hourly)** 만 지원합니다. (예: `KRW 12000/h`, `USD 25/hour`)
+
+Request:
+```json
+{ "countryCode": "UA", "salaryText": "UAH 150/h" }
+```
+
+Response:
+```json
+{
+  "code": "200",
+  "message": "API 요청 성공",
+  "data": { "warningMessage": "..." }
+}
+```
+
 ```bash
-curl -sS http://localhost:8000/v1/analyze/image \
+curl -sS http://localhost:8000/v1/wage-warning \
   -H 'content-type: application/json' \
-  -d '{"imageUrls":["https://example.com/sample.png"],"countryCode":"UA","salary":"3000000 KRW","debug":false}'
+  -d '{"countryCode":"UA","salaryText":"UAH 150/h"}'
+
+curl -sS http://localhost:8000/v1/wage-warning \
+  -H 'content-type: application/json' \
+  -d '{"countryCode":"UA"}'
 ```
 
 <br>
