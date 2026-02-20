@@ -103,6 +103,50 @@ def get_risk_region_patterns() -> list[RiskRegionPattern]:
     return _CACHED
 
 
+_ISO2_TO_RISK_REGION_KEY: dict[str, str] = {
+    "SO": "somalia",
+    "AF": "afghanistan",
+    "IQ": "iraq",
+    "YE": "yemen",
+    "SY": "syria",
+    "LY": "libya",
+    "UA": "ukraine",
+    "SD": "sudan",
+    "PS": "palestine",
+    "VE": "venezuela",
+    "HT": "haiti",
+    "LB": "lebanon",
+    "IL": "israel",
+    "LA": "laos",
+    "MM": "myanmar",
+    "KH": "cambodia",
+    "PH": "philippines",
+    "NE": "niger",
+    "ML": "mali",
+    "CD": "democratic republic of the congo",
+    "RU": "russia",
+    "BY": "belarus",
+    "AM": "armenia",
+    "AZ": "azerbaijan",
+}
+
+
+def match_risk_regions_by_country_code(country_code: str) -> list[str]:
+    """
+    요청 countryCode(ISO 3166-1 alpha-2)가 위험 지역 목록(app/ml/risk_regions.txt)에 대응되면
+    해당 display(한국어) 문자열을 반환합니다.
+    """
+    code = (country_code or "").strip().upper()
+    key = _ISO2_TO_RISK_REGION_KEY.get(code)
+    if not key:
+        return []
+
+    patterns = get_risk_region_patterns()
+    display_by_key = {p.key: p.display_ko for p in patterns}
+    display = display_by_key.get(_normalize_line(key))
+    return [display] if display else []
+
+
 def find_risk_regions(text: str, *, top_k: int = 5) -> list[str]:
     """
     텍스트에 포함된 여행금지 국가/지역명을 탐지합니다.

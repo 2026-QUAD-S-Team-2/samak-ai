@@ -4,7 +4,7 @@ from __future__ import annotations
 이미지 기반 공고/채팅 분석 API 라우트.
 
 입력:
-- application/json: { "imageUrls": ["https://..."] } (단일 입력 호환: imageUrl)
+- application/json: { "imageUrl": "https://...", "countryCode": "KR", "salary": "..." }
 
 처리:
 이미지 → OCR → ML 추론 → scoring → 템플릿 summary → (옵션) Gemini polish → 응답
@@ -17,9 +17,10 @@ from uuid import uuid4
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
-from app.api_models import AnalyzeImageRequest, AnalyzeImageResponse, AnalyzeImagesResponse
+from app.api_models import AnalyzeImageRequest, AnalyzeImageResponse
+from app.ml.message_risk_rules import extract_risk_signals
 from app.ml.ml_baseline import BaselineModel, ModelArtifactsError
-from app.ml.risk_regions import find_risk_regions
+from app.ml.risk_regions import match_risk_regions_by_country_code
 from app.services.backend_push import push_analysis_result
 from app.services.gemini_service import polish_with_gemini
 from app.services.ocr_service import ocr_from_bytes
@@ -64,7 +65,24 @@ async def _download_image_bytes(image_url: str) -> bytes:
     return data
 
 
-async def _analyze_one_image_url(image_url: str, *, debug: bool, background_tasks: BackgroundTasks) -> dict:
+@router.post("/image", response_model=AnalyzeImageResponse)
+async def analyze_image(payload: AnalyzeImageRequest, background_tasks: BackgroundTasks) -> dict:
+    """
+    POST /v1/analyze/image
+
+    - application/json: imageUrl(필수), countryCode(필수), salary(선택), debug(선택)
+    """
+    image_url = (payload.imageUrl or "").strip()
+    if not _is_valid_image_url(image_url):
+        raise HTTPException(status_code=400, detail="imageUrl이 올바르지 않습니다. (http/https URL 필요)")
+
+    country_code = payload.countryCode
+    travel_ban_matched = match_risk_regions_by_country_code(country_code)
+
+    salary_raw = payload.salary
+    has_salary = salary_raw is not None and str(salary_raw).strip() != ""
+    salary_line = f"\n[salary] {str(salary_raw)}" if has_salary else ""
+
     image_bytes = await _download_image_bytes(image_url)
 
     try:
@@ -88,38 +106,43 @@ async def _analyze_one_image_url(image_url: str, *, debug: bool, background_task
             "riskScore": None,
             "riskLevel": "UNKNOWN",
             "riskSignals": [],
-            "travelBanRegionsMatched": [],
+            "travelBanRegionsMatched": travel_ban_matched,
             "message": message,
         }
-        # 백엔드로 push (실패해도 응답은 유지)
         background_tasks.add_task(push_analysis_result, resp)
         return resp
 
     # ML baseline (로컬 아티팩트)
+    used_model = False
     try:
         model = BaselineModel.load_default()
-        fraud_prob = model.predict_proba_from_ocr(ocr.text)
-        risk_signals = model.risk_signals_from_ocr(ocr.text, top_k=3)
         cleaned_input = model.get_cleaned_input_from_ocr(ocr.text)
-        risk_regions = find_risk_regions(cleaned_input, top_k=5)
+        cleaned_input = cleaned_input + salary_line
+        fraud_prob = model.predict_proba(cleaned_input)
+        risk_signals = extract_risk_signals(cleaned_input, top_k=3)
         threshold_used = model.threshold
+        used_model = True
     except ModelArtifactsError as e:
-        # 모델 로딩 실패해도 API는 200을 유지(템플릿 message로 fallback)
         logger.error("Model load failed: %s", e)
         fraud_prob = 0.0
         risk_signals = []
-        risk_regions = []
         threshold_used = 0.5
 
     scores: PredictionScores = score_prediction(fraud_prob, threshold_used)
 
+    # 점수 cap (100은 사용하지 않음)
+    base_risk_score = int(min(99, scores.risk_score))
+    if travel_ban_matched:
+        base_risk_score = int(min(99, round(base_risk_score * 1.15)))
+    trust_score = int(min(99, max(0, 100 - base_risk_score)))
+
     template_message = build_template_message(
         company_name=company_name,
-        trust_score=scores.trust_score,
-        risk_score=scores.risk_score,
+        trust_score=trust_score,
+        risk_score=base_risk_score,
         ui_trust_label=scores.ui_trust_label,
         has_signals=bool(risk_signals),
-        travel_ban_regions=risk_regions,
+        travel_ban_regions=travel_ban_matched,
     )
 
     polished = template_message
@@ -131,10 +154,10 @@ async def _analyze_one_image_url(image_url: str, *, debug: bool, background_task
     try:
         gemini_out = polish_with_gemini(
             template_message=template_message,
-            trust_score=scores.trust_score,
+            trust_score=trust_score,
             trust_label=scores.ui_trust_label,
             fraud_probability=fraud_prob,
-            risk_score=scores.risk_score,
+            risk_score=base_risk_score,
             risk_signals=risk_signals,
         )
         prompt_used = gemini_out.prompt_used
@@ -151,20 +174,19 @@ async def _analyze_one_image_url(image_url: str, *, debug: bool, background_task
     resp: dict = {
         "analysisId": analysis_id,
         "fraudProbability": float(fraud_prob),
-        "riskScore": scores.risk_score,
+        "riskScore": base_risk_score,
         "riskLevel": scores.ui_risk_level,
         "riskSignals": risk_signals,
-        "travelBanRegionsMatched": risk_regions,
+        "travelBanRegionsMatched": travel_ban_matched,
         "message": polished,
     }
 
-    # 백엔드로 push (실패해도 응답은 유지). 응답 지연을 줄이기 위해 background task로 실행.
     background_tasks.add_task(push_analysis_result, resp)
 
-    if debug:
-        # 응답 스키마는 flat JSON로 고정하고, 디버그는 로그로만 남깁니다.
+    if payload.debug:
         logger.info(
-            "debug: usedGemini=%s fallback=%s noChange=%s geminiError=%s ocrError=%s promptUsed_len=%s",
+            "debug: usedModel=%s usedGemini=%s fallback=%s noChange=%s geminiError=%s ocrError=%s promptUsed_len=%s",
+            used_model,
             used_gemini,
             fallback_to_template,
             no_change,
@@ -174,29 +196,3 @@ async def _analyze_one_image_url(image_url: str, *, debug: bool, background_task
         )
 
     return resp
-
-
-@router.post("/image", response_model=AnalyzeImageResponse | AnalyzeImagesResponse)
-async def analyze_image(payload: AnalyzeImageRequest, background_tasks: BackgroundTasks) -> dict:
-    """
-    POST /v1/analyze/image
-
-    - application/json: imageUrls (필수, 1개 이상)
-      - 단일 입력 호환: imageUrl
-    """
-    image_urls = [str(u or "").strip() for u in (payload.imageUrls or [])]
-    image_urls = [u for u in image_urls if u]
-    if not image_urls:
-        raise HTTPException(status_code=422, detail="imageUrls는 최소 1개 이상이어야 합니다.")
-
-    for i, u in enumerate(image_urls):
-        if not _is_valid_image_url(u):
-            raise HTTPException(status_code=400, detail=f"imageUrls[{i}]가 올바르지 않습니다. (http/https URL 필요)")
-
-    if len(image_urls) == 1:
-        return await _analyze_one_image_url(image_urls[0], debug=payload.debug, background_tasks=background_tasks)
-
-    results = [
-        await _analyze_one_image_url(u, debug=payload.debug, background_tasks=background_tasks) for u in image_urls
-    ]
-    return {"results": results}
