@@ -11,27 +11,33 @@
           "analyze"
         ],
         "summary": "Analyze Image",
-        "description": "POST /v1/analyze/image\n\n- multipart/form-data: multipartFile (필수) + (옵션) meta fields\n- application/json: imageUrl (필수) + (옵션) meta fields",
+        "description": "POST /v1/analyze/image\n\n- application/json: imageUrls (필수, 1개 이상)\n  - 단일 입력 호환: imageUrl",
         "operationId": "analyze_image_v1_analyze_image_post",
-        "parameters": [
-          {
-            "name": "debug",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Debug"
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyzeImageRequest"
+              }
             }
-          }
-        ],
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AnalyzeImageResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/AnalyzeImageResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AnalyzeImagesResponse"
+                    }
+                  ],
+                  "title": "Response Analyze Image V1 Analyze Image Post"
                 }
               }
             }
@@ -68,10 +74,70 @@
           }
         }
       }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AnalyzeImageRequest": {
+        "properties": {
+          "imageUrls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Imageurls",
+            "description": "분석할 이미지 URL 목록 (http/https). 파일 업로드는 지원하지 않습니다.",
+            "examples": [
+              [
+                "https://example.com/sample.png"
+              ]
+            ]
+          },
+          "debug": {
+            "type": "boolean",
+            "title": "Debug",
+            "description": "true면 서버 로그에 디버그 정보를 남깁니다(응답 스키마는 변경되지 않음).",
+            "default": false,
+            "examples": [
+              false
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "imageUrls"
+        ],
+        "title": "AnalyzeImageRequest",
+        "examples": [
+          {
+            "debug": false,
+            "imageUrls": [
+              "https://example.com/sample.png"
+            ]
+          }
+        ]
+      },
       "AnalyzeImageResponse": {
         "properties": {
           "analysisId": {
@@ -153,6 +219,20 @@
           "message"
         ],
         "title": "AnalyzeImageResponse"
+      },
+      "AnalyzeImagesResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyzeImageResponse"
+            },
+            "type": "array",
+            "title": "Results",
+            "description": "이미지별 분석 결과 목록(요청 순서 보장)."
+          }
+        },
+        "type": "object",
+        "title": "AnalyzeImagesResponse"
       },
       "HTTPValidationError": {
         "properties": {

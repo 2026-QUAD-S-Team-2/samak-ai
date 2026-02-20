@@ -4,7 +4,7 @@ from __future__ import annotations
 이미지 기반 공고/채팅 분석 API 라우트.
 
 입력:
-- application/json: { "imageUrl": "https://..." }
+- application/json: { "imageUrls": ["https://..."] } (단일 입력 호환: imageUrl)
 
 처리:
 이미지 → OCR → ML 추론 → scoring → 템플릿 summary → (옵션) Gemini polish → 응답
@@ -17,7 +17,7 @@ from uuid import uuid4
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
-from app.api_models import AnalyzeImageRequest, AnalyzeImageResponse
+from app.api_models import AnalyzeImageRequest, AnalyzeImageResponse, AnalyzeImagesResponse
 from app.ml.ml_baseline import BaselineModel, ModelArtifactsError
 from app.ml.risk_regions import find_risk_regions
 from app.services.backend_push import push_analysis_result
@@ -64,17 +64,7 @@ async def _download_image_bytes(image_url: str) -> bytes:
     return data
 
 
-@router.post("/image", response_model=AnalyzeImageResponse)
-async def analyze_image(payload: AnalyzeImageRequest, background_tasks: BackgroundTasks) -> dict:
-    """
-    POST /v1/analyze/image
-
-    - application/json: imageUrl (필수)
-    """
-    image_url = (payload.imageUrl or "").strip()
-    if not _is_valid_image_url(image_url):
-        raise HTTPException(status_code=400, detail="imageUrl이 올바르지 않습니다. (http/https URL 필요)")
-
+async def _analyze_one_image_url(image_url: str, *, debug: bool, background_tasks: BackgroundTasks) -> dict:
     image_bytes = await _download_image_bytes(image_url)
 
     try:
@@ -120,7 +110,6 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
         risk_signals = []
         risk_regions = []
         threshold_used = 0.5
-        model = None  # type: ignore[assignment]
 
     scores: PredictionScores = score_prediction(fraud_prob, threshold_used)
 
@@ -172,7 +161,7 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
     # 백엔드로 push (실패해도 응답은 유지). 응답 지연을 줄이기 위해 background task로 실행.
     background_tasks.add_task(push_analysis_result, resp)
 
-    if payload.debug:
+    if debug:
         # 응답 스키마는 flat JSON로 고정하고, 디버그는 로그로만 남깁니다.
         logger.info(
             "debug: usedGemini=%s fallback=%s noChange=%s geminiError=%s ocrError=%s promptUsed_len=%s",
@@ -185,3 +174,29 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
         )
 
     return resp
+
+
+@router.post("/image", response_model=AnalyzeImageResponse | AnalyzeImagesResponse)
+async def analyze_image(payload: AnalyzeImageRequest, background_tasks: BackgroundTasks) -> dict:
+    """
+    POST /v1/analyze/image
+
+    - application/json: imageUrls (필수, 1개 이상)
+      - 단일 입력 호환: imageUrl
+    """
+    image_urls = [str(u or "").strip() for u in (payload.imageUrls or [])]
+    image_urls = [u for u in image_urls if u]
+    if not image_urls:
+        raise HTTPException(status_code=422, detail="imageUrls는 최소 1개 이상이어야 합니다.")
+
+    for i, u in enumerate(image_urls):
+        if not _is_valid_image_url(u):
+            raise HTTPException(status_code=400, detail=f"imageUrls[{i}]가 올바르지 않습니다. (http/https URL 필요)")
+
+    if len(image_urls) == 1:
+        return await _analyze_one_image_url(image_urls[0], debug=payload.debug, background_tasks=background_tasks)
+
+    results = [
+        await _analyze_one_image_url(u, debug=payload.debug, background_tasks=background_tasks) for u in image_urls
+    ]
+    return {"results": results}

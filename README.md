@@ -73,12 +73,12 @@ python3 scripts/export_openapi.py --out openapi.json
 Request (JSON only):
 ```json
 {
-  "imageUrl": "https://example.com/sample.png",
+  "imageUrls": ["https://example.com/sample.png"],
   "debug": false
 }
 ```
 
-Response:
+Response (요청이 1장인 경우):
 ```json
 {
   "analysisId": "uuid",
@@ -90,6 +90,26 @@ Response:
   "message": "..."
 }
 ```
+
+Response (요청이 여러 장인 경우):
+```json
+{
+  "results": [
+    {
+      "analysisId": "uuid",
+      "fraudProbability": 0.87,
+      "riskScore": 87,
+      "riskLevel": "HIGH",
+      "riskSignals": ["bitcoin", "upfront payment"],
+      "travelBanRegionsMatched": ["우크라이나"],
+      "message": "..."
+    }
+  ]
+}
+```
+
+호환성:
+- 기존 단일 입력인 `imageUrl`도 계속 동작합니다(서버에서 `imageUrls`로 정규화).
 
 <br>
 
@@ -114,7 +134,7 @@ docker run --rm -p 8000:8000 -e MODEL_DIR=/app/models/fraud-baseline samak-ai
 ```bash
 curl -sS http://localhost:8000/v1/analyze/image \
   -H 'content-type: application/json' \
-  -d '{"imageUrl":"https://example.com/sample.png","debug":false}'
+  -d '{"imageUrls":["https://example.com/sample.png"],"debug":false}'
 ```
 
 <br>
