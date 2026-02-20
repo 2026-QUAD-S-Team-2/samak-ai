@@ -17,6 +17,7 @@ import os
 import re
 
 from app.integrations import ilostat_client
+from app.services.min_wage_store import get_min_wage_local
 
 logger = logging.getLogger(__name__)
 
@@ -203,19 +204,40 @@ def parse_salary_text(*, country_code: str, salary_text: str) -> ParsedSalary | 
 
 
 async def get_min_wage(country_code: str) -> float | None:
-    ind = (os.environ.get("ILOSTAT_MIN_WAGE_INDICATOR") or "").strip()
-    if not ind:
+    # MVP: ILOSTAT 최저임금 지표는 사용하지 않고, 내부 정적 데이터(hourly)로 관리합니다.
+    out = get_min_wage_local(country_code)
+    if out is None:
         return None
-    return await ilostat_client.fetch_series(country_code=country_code, indicator_code=ind)
+    hourly, _currency, _as_of = out
+    return float(hourly)
 
 
 async def get_avg_wage(country_code: str) -> float | None:
-    ind_median = (os.environ.get("ILOSTAT_MEDIAN_WAGE_INDICATOR") or "").strip()
-    ind_avg = (os.environ.get("ILOSTAT_AVG_WAGE_INDICATOR") or "").strip()
-    ind = ind_median or ind_avg
+    ind = (os.environ.get("ILOSTAT_AVG_WAGE_INDICATOR") or "").strip()
     if not ind:
         return None
-    return await ilostat_client.fetch_series(country_code=country_code, indicator_code=ind)
+    return await ilostat_client.fetch_latest_value(countryCode=country_code, indicator=ind)
+
+
+async def get_median_wage(country_code: str) -> float | None:
+    ind = (os.environ.get("ILOSTAT_MEDIAN_WAGE_INDICATOR") or "").strip()
+    if not ind:
+        return None
+    return await ilostat_client.fetch_latest_value(countryCode=country_code, indicator=ind)
+
+
+async def get_avg_or_median_wage(country_code: str) -> tuple[float, str] | None:
+    """
+    median이 있으면 median 우선.
+    반환: (value, kind) where kind in {"median","avg"}
+    """
+    med = await get_median_wage(country_code)
+    if med is not None:
+        return float(med), "median"
+    avg = await get_avg_wage(country_code)
+    if avg is not None:
+        return float(avg), "avg"
+    return None
 
 
 def _fmt_num(x: float) -> str:
@@ -272,7 +294,7 @@ def build_warning_message(
         )
 
     if min_wage is None and avg_wage is None:
-        return "해당 국가의 임금 기준 데이터가 충분하지 않아 경고를 생성할 수 없습니다."
+        return "데이터 조회 실패 또는 국가코드 미지원으로 임금 비교를 생략했습니다."
 
     return "제공된 정보로는 임금 경고 조건에 해당하지 않습니다."
 
@@ -367,8 +389,32 @@ async def decide_wage_warning(*, country_code: str, salary_text: str | None) -> 
             currency_mismatch=True,
         )
 
+    # local min wage dataset currency mismatch check (no FX conversion in MVP)
+    local_min = get_min_wage_local(cc)
+    if local_min is not None:
+        _min_hourly, min_currency, _as_of = local_min
+        if parsed.currency_code != min_currency:
+            msg = build_warning_message(
+                country_code=cc,
+                salary_text=st,
+                parsed_salary=parsed,
+                min_wage=None,
+                avg_wage=None,
+                currency_mismatch=True,
+                warning_kind="mismatch",
+            )
+            return WageWarningDecision(
+                warning_kind="mismatch",
+                warning_message=msg,
+                parsed_salary=parsed,
+                min_wage=None,
+                avg_wage=None,
+                currency_mismatch=True,
+            )
+
     min_wage = await get_min_wage(cc)
-    avg_wage = await get_avg_wage(cc)
+    avg_or_med = await get_avg_or_median_wage(cc)
+    avg_wage = avg_or_med[0] if avg_or_med is not None else None
 
     warning_kind = "none"
     if min_wage is not None and parsed.amount_hourly < min_wage:

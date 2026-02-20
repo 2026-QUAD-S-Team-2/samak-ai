@@ -1,0 +1,92 @@
+{
+  "KR": {
+    "currency": "KRW",
+    "hourly": 10320,
+    "asOf": "2025-01-01",
+    "source": "local"
+  },
+  "US": {
+    "currency": "USD",
+    "hourly": 7.25,
+    "asOf": "2025-01-01",
+    "source": "local_federal"
+  },
+  "JP": {
+    "currency": "JPY",
+    "hourly": 1004,
+    "asOf": "2025-01-01",
+    "source": "local_avg_prefecture"
+  },
+  "CN": {
+    "currency": "CNY",
+    "hourly": 24.0,
+    "asOf": "2025-01-01",
+    "source": "local_major_city_avg"
+  },
+  "GB": {
+    "currency": "GBP",
+    "hourly": 11.44,
+    "asOf": "2025-01-01",
+    "source": "local_national_living_wage"
+  },
+  "DE": {
+    "currency": "EUR",
+    "hourly": 12.41,
+    "asOf": "2025-01-01",
+    "source": "local_statutory"
+  },
+  "FR": {
+    "currency": "EUR",
+    "hourly": 11.65,
+    "asOf": "2025-01-01",
+    "source": "local_statutory"
+  },
+  "CA": {
+    "currency": "CAD",
+    "hourly": 16.65,
+    "asOf": "2025-01-01",
+    "source": "local_federal_avg"
+  },
+  "AU": {
+    "currency": "AUD",
+    "hourly": 23.23,
+    "asOf": "2025-01-01",
+    "source": "local_statutory"
+  },
+  "SG": {
+    "currency": "SGD",
+    "hourly": 10.5,
+    "asOf": "2025-01-01",
+    "source": "local_progressive_wage_model_est"
+  },
+  "UA": {
+    "currency": "UAH",
+    "hourly": 48.0,
+    "asOf": "2025-01-01",
+    "source": "local"
+  },
+  "VN": {
+    "currency": "VND",
+    "hourly": 22000,
+    "asOf": "2025-01-01",
+    "source": "local_region_avg_est"
+  },
+  "PH": {
+    "currency": "PHP",
+    "hourly": 77.0,
+    "asOf": "2025-01-01",
+    "source": "local_metro_manila_est"
+  },
+  "IN": {
+    "currency": "INR",
+    "hourly": 50.0,
+    "asOf": "2025-01-01",
+    "source": "local_est"
+  },
+  "ID": {
+    "currency": "IDR",
+    "hourly": 25000,
+    "asOf": "2025-01-01",
+    "source": "local_jakarta_est"
+  }
+}
