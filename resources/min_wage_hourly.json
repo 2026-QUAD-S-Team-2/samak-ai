@@ -1,4 +1,7 @@
 {
+  "KR": { "currency": "KRW", "hourly": 10320, "asOf": "2025-01-01", "source": "local" },
+  "US": { "currency": "USD", "hourly": 7.25, "asOf": "2025-01-01", "source": "local_federal" },
+
   "BR": { "currency": "BRL", "hourly": 6.42, "asOf": "2025-01-01", "source": "local_monthly_to_hour_est" },
   "MX": { "currency": "MXN", "hourly": 41.7, "asOf": "2025-01-01", "source": "local_statutory_est" },
   "AR": { "currency": "ARS", "hourly": 1200, "asOf": "2025-01-01", "source": "local_est" },

@@ -29,6 +29,7 @@
 - `MODEL_DIR` (기본 `models/fraud-baseline`)
 - `GEMINI_API_KEY` (있으면 요약 문장을 Gemini가 다듬음, 실패 시 템플릿 문장 그대로 반환)
 - `GEMINI_MODEL` (기본 `gemini-2.5-flash`)
+- `MIN_WAGE_DATA_PATH` (기본 `resources/min_wage_hourly.json`)
 
 ## 백엔드 Push 설정(하드코딩)
 
@@ -58,14 +59,14 @@ Response:
 ### `POST /v1/analyze/image`
 
 Request (JSON only):
-	```json
-	{
-	  "debug": false,
-	  "imageUrls": ["https://example.com/sample.png"],
-	  "countryCode": "UA",
-	  "salaryText": "3000000 KRW"
-	}
-	```
+```json
+{
+  "debug": false,
+  "imageUrls": ["https://example.com/sample.png"],
+  "countryCode": "UA",
+  "salaryText": "3000000 KRW"
+}
+```
 
 Response:
 ```json
@@ -102,36 +103,10 @@ Response (요청이 여러 장인 경우):
 
 <br>
 
-## Local run
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-uvicorn app.main:app --host 0.0.0.0 --port 8000 # 추론 서비스 켜기
-```
-
-## Docker run
-
-```bash
-docker build -t samak-ai .
-docker run --rm -p 8000:8000 -e MODEL_DIR=/app/models/fraud-baseline samak-ai
-```
-
-## cURL example
-
-	```bash
-	curl -sS http://localhost:8000/v1/analyze/image \
-	  -H 'content-type: application/json' \
-	  -d '{"imageUrls":["https://example.com/sample.png"],"countryCode":"UA","salaryText":"3000000 KRW","debug":false}'
-	```
-
-	<br>
-
 ### `POST /v1/wage-warning`
 
 설명:
-- `salaryText`가 없으면, 내부에 저장된 해당 국가 최저 시급이 있으면 안내 문구를 반환하고 없으면 null을 반환합니다.
+- `salaryText`가 없으면, 내부에 저장된 해당 국가 최저 시급이 있으면 안내 문구를 반환하고 없으면 `warningMessage=null`을 반환합니다.
 - `salaryText`는 **시급(hourly)** 만 지원합니다. (예: `KRW 12000/h`, `USD 25/hour`)
 - 고임금 경고는 `시급 >= (해당 국가 최저 시급 * 4)` 일 때 트리거됩니다.
 
@@ -157,6 +132,16 @@ curl -sS http://localhost:8000/v1/wage-warning \
 curl -sS http://localhost:8000/v1/wage-warning \
   -H 'content-type: application/json' \
   -d '{"countryCode":"UA"}'
+
+# 경고 조건 미해당(또는 최저시급 미설정 국가): warningMessage=null
+curl -sS http://localhost:8000/v1/wage-warning \
+  -H 'content-type: application/json' \
+  -d '{"countryCode":"KR","salaryText":"KRW 11000/h"}'
+
+# 고임금 경고 예시(최저시급의 4배 이상)
+curl -sS http://localhost:8000/v1/wage-warning \
+  -H 'content-type: application/json' \
+  -d '{"countryCode":"KR","salaryText":"KRW 50000/h"}'
 ```
 
 <br>
@@ -183,16 +168,28 @@ curl -sS http://localhost:8000/v1/wage-warning \
 - export(원자적 교체): `python training/train_baseline.py export --model-dir training/runs/tfidf_lr --export-dir models/fraud-baseline`
 - 서빙: `uvicorn app.main:app --host 0.0.0.0 --port 8000`
 
-### `POST /v1/external/maps/geocode`
+<br>
 
-Request:
-```json
-{ "address": "London, UK" }
+## Local run
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+uvicorn app.main:app --host 0.0.0.0 --port 8000 # 추론 서비스 켜기
 ```
 
-### `POST /v1/external/gemini/generate`
+## Docker run
 
-Request:
-```json
-{ "prompt": "Summarize fraud risks in this job posting: ..." }
+```bash
+docker build -t samak-ai .
+docker run --rm -p 8000:8000 -e MODEL_DIR=/app/models/fraud-baseline samak-ai
+```
+
+## cURL example
+
+```bash
+curl -sS http://localhost:8000/v1/analyze/image \
+  -H 'content-type: application/json' \
+  -d '{"imageUrls":["https://example.com/sample.png"],"countryCode":"UA","salaryText":"3000000 KRW","debug":false}'
 ```
