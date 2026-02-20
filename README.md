@@ -6,10 +6,9 @@
 
 ## What this repo does
 
-입력은 **무조건 이미지(채팅 캡처/공고 캡처)** 입니다.
-
 파이프라인:
-이미지 URL(JSON) → 이미지 다운로드 → OCR(EasyOCR) → ML baseline(TF‑IDF+LR) → 위험도 점수/레벨 산출 → Gemini로 자연어 문장 생성 → JSON 반환
+1. 이미지 URL(JSON) → OCR(EasyOCR) → ML baseline(TF‑IDF+LR) → 위험도 점수/레벨 산출 → Gemini로 자연어 문장 생성 → JSON 반환
+2. 국가, 제안 임금 → 국가별 최저임금 json 기반 위험 Gemini로 자연어 문장 생성 → JSON 반환
 
 <br>
 
@@ -19,7 +18,7 @@
 - 전처리/통합 + split: `preprocess.py` → `combined.csv` + `train.csv` + `test.csv`
   - 텍스트 통합/클린업/급여 파싱/LinkedIn 정상 샘플링/stratified split 포함
 - 학습: `training/train_baseline.py train` → `{vectorizer.joblib, model.joblib, metadata.json}`
-- 배포용 export: `training/train_baseline.py export` 또는 `training/train_baseline.py all --export-dir ...` → `models/fraud-baseline/`로 원자적 교체
+- 모델 배포용 export: `training/train_baseline.py export` 또는 `training/train_baseline.py all --export-dir ...` → `models/fraud-baseline/`로 원자적 교체
 - 추론: FastAPI가 `models/fraud-baseline/`에서 아티팩트 로딩 후 `/v1/analyze/image`로 결과 반환
 
 <br>
@@ -54,18 +53,6 @@ python scripts/local_test.py --file scripts/recruitment2.png --company-name "OO�
 Response:
 ```json
 { "status": "ok" }
-```
-
-### Swagger / OpenAPI
-
-- Swagger UI: `/docs`
-- OpenAPI JSON: `/openapi.json`
-- ReDoc: `/redoc`
-
-서버 없이 스펙 파일만 공유하려면:
-
-```bash
-python3 scripts/export_openapi.py --out openapi.json
 ```
 
 ### `POST /v1/analyze/image`
