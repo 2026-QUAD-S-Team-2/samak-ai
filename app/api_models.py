@@ -127,7 +127,7 @@ class WageWarningRequest(BaseModel):
     )
     salaryText: str | None = Field(
         default=None,
-        description='(옵션) 시급(hourly) 기준 급여 텍스트(통화 포함). 예: "KRW 12000/h", "₩12,000/hour", "USD 25/h"',
+        description='(옵션) 시급(hourly) 기준 급여 텍스트(통화 포함). 예: "KRW 12000/h", "₩12,000/hour", "USD 25/h". 미제공 시 최저시급 안내 또는 null.',
         examples=["UAH 150/h"],
     )
 
