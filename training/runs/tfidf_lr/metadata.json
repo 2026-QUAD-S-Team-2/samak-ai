@@ -1,6 +1,6 @@
 {
   "model_version": "fraud-baseline-v1.0.0",
-  "trained_at": "2026-02-15T11:29:45.223147+00:00",
+  "trained_at": "2026-02-20T05:51:10.459712+00:00",
   "threshold": 0.5,
   "notes": "tfidf + logistic regression (threshold tuned in evaluate)",
   "preprocess_signature": {
