@@ -44,11 +44,7 @@ def test_wage_warning_min_wage_warning(monkeypatch) -> None:
     async def _min(_cc: str) -> float:
         return 15000.0
 
-    async def _avg(_cc: str) -> float:
-        return 20000.0
-
     monkeypatch.setattr(wage_service, "get_min_wage", _min)
-    monkeypatch.setattr(wage_service, "get_avg_wage", _avg)
 
     with TestClient(app) as client:
         resp = client.post("/v1/wage-warning", json={"countryCode": "KR", "salaryText": "KRW 12000/h"})
@@ -63,17 +59,14 @@ def test_wage_warning_high_salary_warning(monkeypatch) -> None:
     async def _min(_cc: str) -> float:
         return 10.0
 
-    async def _avg(_cc: str) -> float:
-        return 10.0
-
     monkeypatch.setattr(wage_service, "get_min_wage", _min)
-    monkeypatch.setattr(wage_service, "get_avg_wage", _avg)
 
     with TestClient(app) as client:
-        resp = client.post("/v1/wage-warning", json={"countryCode": "KR", "salaryText": "KRW 30/h"})
+        resp = client.post("/v1/wage-warning", json={"countryCode": "KR", "salaryText": "KRW 40/h"})
     assert resp.status_code == 200
     msg = resp.json()["data"]["warningMessage"]
-    assert "평균" in msg
+    assert msg is not None
+    assert "4배" in msg
 
 
 def test_wage_warning_no_warning_returns_null(monkeypatch) -> None:
@@ -82,11 +75,7 @@ def test_wage_warning_no_warning_returns_null(monkeypatch) -> None:
     async def _min(_cc: str) -> float:
         return 5000.0
 
-    async def _avg_or_med(_cc: str):  # noqa: ANN001
-        return None
-
     monkeypatch.setattr(wage_service, "get_min_wage", _min)
-    monkeypatch.setattr(wage_service, "get_avg_or_median_wage", _avg_or_med)
 
     with TestClient(app) as client:
         resp = client.post("/v1/wage-warning", json={"countryCode": "KR", "salaryText": "KRW 6000/h"})

@@ -13,10 +13,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
-import os
 import re
 
-from app.integrations import ilostat_client
 from app.services.min_wage_store import get_min_wage_local
 
 logger = logging.getLogger(__name__)
@@ -211,33 +209,9 @@ async def get_min_wage(country_code: str) -> float | None:
     hourly, _currency, _as_of = out
     return float(hourly)
 
-
-async def get_avg_wage(country_code: str) -> float | None:
-    ind = (os.environ.get("ILOSTAT_AVG_WAGE_INDICATOR") or "").strip()
-    if not ind:
-        return None
-    return await ilostat_client.fetch_latest_value(countryCode=country_code, indicator=ind)
-
-
-async def get_median_wage(country_code: str) -> float | None:
-    ind = (os.environ.get("ILOSTAT_MEDIAN_WAGE_INDICATOR") or "").strip()
-    if not ind:
-        return None
-    return await ilostat_client.fetch_latest_value(countryCode=country_code, indicator=ind)
-
-
-async def get_avg_or_median_wage(country_code: str) -> tuple[float, str] | None:
-    """
-    median이 있으면 median 우선.
-    반환: (value, kind) where kind in {"median","avg"}
-    """
-    med = await get_median_wage(country_code)
-    if med is not None:
-        return float(med), "median"
-    avg = await get_avg_wage(country_code)
-    if avg is not None:
-        return float(avg), "avg"
-    return None
+def _high_wage_threshold(min_wage: float) -> float:
+    # 정책: 최저시급의 4배 이상이면 고임금 경고
+    return float(min_wage) * 4.0
 
 
 def _fmt_num(x: float) -> str:
@@ -292,16 +266,14 @@ def build_warning_message(
             "공고의 급여/근로조건을 다시 확인해 주세요."
         )
 
-    if warning_kind == "high_salary" and avg_wage is not None:
-        ratio = parsed_salary.amount_hourly / avg_wage if avg_wage > 0 else 0.0
-        ratio_s = _fmt_num(ratio)
+    if warning_kind == "high_salary" and min_wage is not None:
         return (
-            f"제안된 시급({_fmt_num(parsed_salary.amount_hourly)})이(가) {cc}의 평균(또는 중위) 시급({_fmt_num(avg_wage)}) 대비 약 {ratio_s}배로 높습니다. "
+            f"제안된 시급({_fmt_num(parsed_salary.amount_hourly)})이(가) {cc}의 법정 최저 시급({_fmt_num(min_wage)})의 4배 이상입니다. "
             "비현실적 보상 제안은 사기 공고에서 흔히 나타나므로 추가 검증을 권장합니다."
         )
 
-    if min_wage is None and avg_wage is None:
-        return "데이터 조회 실패 또는 국가코드 미지원으로 임금 비교를 생략했습니다."
+    if min_wage is None:
+        return None
 
     # 경고 조건에 해당하지 않으면 메시지를 만들지 않습니다.
     return None
@@ -421,14 +393,14 @@ async def decide_wage_warning(*, country_code: str, salary_text: str | None) -> 
             )
 
     min_wage = await get_min_wage(cc)
-    avg_or_med = await get_avg_or_median_wage(cc)
-    avg_wage = avg_or_med[0] if avg_or_med is not None else None
+    avg_wage = None
 
     warning_kind = "none"
-    if min_wage is not None and parsed.amount_hourly < min_wage:
-        warning_kind = "min_wage_low"
-    elif avg_wage is not None and avg_wage > 0 and (parsed.amount_hourly / avg_wage) >= 2.5:
-        warning_kind = "high_salary"
+    if min_wage is not None:
+        if parsed.amount_hourly < min_wage:
+            warning_kind = "min_wage_low"
+        elif parsed.amount_hourly >= _high_wage_threshold(min_wage):
+            warning_kind = "high_salary"
 
     msg = build_warning_message(
         country_code=cc,

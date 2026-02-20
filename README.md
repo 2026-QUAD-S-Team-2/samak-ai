@@ -144,8 +144,9 @@ docker run --rm -p 8000:8000 -e MODEL_DIR=/app/models/fraud-baseline samak-ai
 ### `POST /v1/wage-warning`
 
 설명:
-- `salaryText`가 없으면 경고를 생성할 수 없다는 안내만 반환하며 점수 조정은 없습니다.
+- `salaryText`가 없으면, 내부에 저장된 해당 국가 최저 시급이 있으면 안내 문구를 반환하고 없으면 null을 반환합니다.
 - `salaryText`는 **시급(hourly)** 만 지원합니다. (예: `KRW 12000/h`, `USD 25/hour`)
+- 고임금 경고는 `시급 >= (해당 국가 최저 시급 * 4)` 일 때 트리거됩니다.
 
 Request:
 ```json
