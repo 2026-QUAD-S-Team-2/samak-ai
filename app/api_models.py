@@ -9,7 +9,7 @@ Swagger(OpenAPI) 문서용 응답 스키마.
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # Swagger에서 enum으로 노출되도록 Literal로 고정합니다.
@@ -19,10 +19,12 @@ RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL", "UNKNOWN"]
 
 
 class AnalyzeImageRequest(BaseModel):
-    imageUrl: str = Field(
+    imageUrls: list[str] = Field(
         ...,
-        description="분석할 이미지 URL (http/https). 파일 업로드는 지원하지 않습니다.",
-        examples=["https://example.com/sample.png"],
+        min_length=1,
+        validation_alias=AliasChoices("imageUrls", "imageUrl"),
+        description="분석할 이미지 URL 목록 (http/https). 파일 업로드는 지원하지 않습니다.",
+        examples=[["https://example.com/sample.png"]],
     )
     countryCode: str = Field(
         ...,
@@ -40,6 +42,27 @@ class AnalyzeImageRequest(BaseModel):
         examples=[False],
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_image_urls(cls, data: Any) -> Any:
+        # Backward-compat:
+        # - 신규: {"imageUrls": ["https://...", "..."]}
+        # - 기존: {"imageUrl": "https://..."}
+        if not isinstance(data, dict):
+            return data
+
+        if "imageUrls" in data and isinstance(data["imageUrls"], str):
+            data["imageUrls"] = [data["imageUrls"]]
+
+        if "imageUrl" in data and "imageUrls" not in data:
+            v = data.get("imageUrl")
+            if isinstance(v, str):
+                data["imageUrls"] = [v]
+            elif isinstance(v, list):
+                data["imageUrls"] = v
+
+        return data
+
     @field_validator("countryCode", mode="before")
     @classmethod
     def _normalize_country_code(cls, v: Any) -> str:
@@ -53,13 +76,13 @@ class AnalyzeImageRequest(BaseModel):
             "examples": [
                 {
                     "debug": False,
-                    "imageUrl": "https://example.com/sample.png",
+                    "imageUrls": ["https://example.com/sample.png"],
                     "countryCode": "UA",
                     "salary": "3000000 KRW",
                 },
                 {
                     "debug": False,
-                    "imageUrl": "https://example.com/sample.png",
+                    "imageUrls": ["https://example.com/sample.png"],
                     "countryCode": "KR",
                 }
             ]
@@ -86,3 +109,10 @@ class AnalyzeImageResponse(BaseModel):
     riskSignals: list[str] = Field(default_factory=list, max_length=3)
     travelBanRegionsMatched: list[str] = Field(default_factory=list)
     message: str
+
+
+class AnalyzeImagesResponse(BaseModel):
+    results: list[AnalyzeImageResponse] = Field(
+        default_factory=list,
+        description="이미지별 분석 결과 목록(요청 순서 보장).",
+    )

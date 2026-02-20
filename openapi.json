@@ -11,7 +11,7 @@
           "analyze"
         ],
         "summary": "Analyze Image",
-        "description": "POST /v1/analyze/image\n\n- application/json: imageUrl(필수), countryCode(필수), salary(선택), debug(선택)",
+        "description": "POST /v1/analyze/image\n\n- application/json: imageUrls(필수, 1개 이상), countryCode(필수), salary(선택), debug(선택)\n  - 단일 입력 호환: imageUrl",
         "operationId": "analyze_image_v1_analyze_image_post",
         "requestBody": {
           "content": {
@@ -29,7 +29,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AnalyzeImageResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/AnalyzeImageResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AnalyzeImagesResponse"
+                    }
+                  ],
+                  "title": "Response Analyze Image V1 Analyze Image Post"
                 }
               }
             }
@@ -92,12 +100,18 @@
     "schemas": {
       "AnalyzeImageRequest": {
         "properties": {
-          "imageUrl": {
-            "type": "string",
-            "title": "Imageurl",
-            "description": "분석할 이미지 URL (http/https). 파일 업로드는 지원하지 않습니다.",
+          "imageUrls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Imageurls",
+            "description": "분석할 이미지 URL 목록 (http/https). 파일 업로드는 지원하지 않습니다.",
             "examples": [
-              "https://example.com/sample.png"
+              [
+                "https://example.com/sample.png"
+              ]
             ]
           },
           "countryCode": {
@@ -135,7 +149,7 @@
         },
         "type": "object",
         "required": [
-          "imageUrl",
+          "imageUrls",
           "countryCode"
         ],
         "title": "AnalyzeImageRequest",
@@ -143,13 +157,17 @@
           {
             "countryCode": "UA",
             "debug": false,
-            "imageUrl": "https://example.com/sample.png",
+            "imageUrls": [
+              "https://example.com/sample.png"
+            ],
             "salary": "3000000 KRW"
           },
           {
             "countryCode": "KR",
             "debug": false,
-            "imageUrl": "https://example.com/sample.png"
+            "imageUrls": [
+              "https://example.com/sample.png"
+            ]
           }
         ]
       },
@@ -234,6 +252,20 @@
           "message"
         ],
         "title": "AnalyzeImageResponse"
+      },
+      "AnalyzeImagesResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyzeImageResponse"
+            },
+            "type": "array",
+            "title": "Results",
+            "description": "이미지별 분석 결과 목록(요청 순서 보장)."
+          }
+        },
+        "type": "object",
+        "title": "AnalyzeImagesResponse"
       },
       "HTTPValidationError": {
         "properties": {
