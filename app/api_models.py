@@ -151,7 +151,10 @@ class WageWarningRequest(BaseModel):
 
 
 class WageWarningData(BaseModel):
-    warningMessage: str
+    warningMessage: str | None = Field(
+        default=None,
+        description="임금 경고 메시지. 경고 조건에 해당하지 않으면 null.",
+    )
 
 
 class WageWarningResponse(BaseModel):

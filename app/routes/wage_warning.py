@@ -30,4 +30,3 @@ async def wage_warning(payload: WageWarningRequest) -> dict:
         msg = "임금 기준 데이터 조회에 실패하여 경고를 생성할 수 없습니다."
 
     return {"code": "200", "message": "API 요청 성공", "data": {"warningMessage": msg}}
-

@@ -37,14 +37,14 @@ class WageScores:
 
 @dataclass(frozen=True)
 class WageWarningResult:
-    warning_message: str
+    warning_message: str | None
     scores: WageScores
 
 
 @dataclass(frozen=True)
 class WageWarningDecision:
     warning_kind: str
-    warning_message: str
+    warning_message: str | None
     parsed_salary: ParsedSalary | None
     min_wage: float | None
     avg_wage: float | None
@@ -255,11 +255,18 @@ def build_warning_message(
     avg_wage: float | None,
     currency_mismatch: bool,
     warning_kind: str,
-) -> str:
+) -> str | None:
     cc = (country_code or "").strip().upper()
 
     if not salary_text:
-        return "제안 임금 정보가 제공되지 않아 최저임금/평균임금 기준 경고를 생성할 수 없습니다."
+        local_min = get_min_wage_local(cc)
+        if local_min is None:
+            return None
+        hourly, currency, _as_of = local_min
+        return (
+            f"해당 국가({cc})의 법정 최저 시급은 {_fmt_num(hourly)} {currency}입니다. "
+            "회사에서 제안하는 임금이 이 기준을 충족하는지 확인해 보세요."
+        )
 
     if warning_kind == "parse_error":
         return (
@@ -296,7 +303,8 @@ def build_warning_message(
     if min_wage is None and avg_wage is None:
         return "데이터 조회 실패 또는 국가코드 미지원으로 임금 비교를 생략했습니다."
 
-    return "제공된 정보로는 임금 경고 조건에 해당하지 않습니다."
+    # 경고 조건에 해당하지 않으면 메시지를 만들지 않습니다.
+    return None
 
 
 def apply_wage_adjustments(

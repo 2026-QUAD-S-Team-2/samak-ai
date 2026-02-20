@@ -165,7 +165,7 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
             has_signals=bool(risk_signals),
             travel_ban_regions=travel_ban_matched,
         )
-        if has_salary:
+        if has_salary and wage_decision.warning_message:
             template_message = template_message + " " + wage_decision.warning_message
 
         polished = template_message
