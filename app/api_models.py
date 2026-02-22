@@ -16,6 +16,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 # - CRITICAL: (선택) 향후 정책 확장용
 # - UNKNOWN: OCR 실패 등으로 판단 불가 케이스
 RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL", "UNKNOWN"]
+WageMessageType = Literal["NONE", "INFO", "WARNING", "ERROR"]
 
 
 class AnalyzeImageRequest(BaseModel):
@@ -109,6 +110,16 @@ class AnalyzeImageResponse(BaseModel):
     riskLevel: RiskLevel
     riskSignals: list[str] = Field(default_factory=list, max_length=3)
     travelBanRegionsMatched: list[str] = Field(default_factory=list)
+    wageMessageType: WageMessageType = Field(
+        default="NONE",
+        description="임금 관련 메시지 유형. NONE이면 wageMessage는 null.",
+        examples=["WARNING"],
+    )
+    wageMessage: str | None = Field(
+        default=None,
+        description="임금 관련 메시지(경고/안내/오류). 해당 없으면 null.",
+        examples=["제안된 시급(5000)이(가) KR의 법정 최저임금(10320)보다 낮습니다. 공고의 급여/근로조건을 다시 확인해 주세요."],
+    )
     message: str
 
 

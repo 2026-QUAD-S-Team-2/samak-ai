@@ -91,6 +91,15 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
     salary_line = f"\n[salary] {str(salary_text)}" if has_salary else ""
 
     wage_decision = await decide_wage_warning(country_code=country_code, salary_text=salary_text)
+    wage_message = wage_decision.warning_message
+    if wage_decision.warning_kind in {"min_wage_low", "high_salary"}:
+        wage_message_type = "WARNING"
+    elif wage_decision.warning_kind in {"parse_error", "mismatch"}:
+        wage_message_type = "ERROR"
+    elif wage_decision.warning_kind == "missing":
+        wage_message_type = "INFO" if wage_message else "NONE"
+    else:
+        wage_message_type = "NONE"
 
     async def _analyze_one_image_url(image_url: str) -> dict:
         image_bytes = await _download_image_bytes(image_url)
@@ -117,6 +126,8 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
                 "riskLevel": "UNKNOWN",
                 "riskSignals": [],
                 "travelBanRegionsMatched": travel_ban_matched,
+                "wageMessageType": wage_message_type,
+                "wageMessage": wage_message,
                 "message": message,
             }
             background_tasks.add_task(push_analysis_result, resp)
@@ -165,8 +176,10 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
             has_signals=bool(risk_signals),
             travel_ban_regions=travel_ban_matched,
         )
-        if has_salary and wage_decision.warning_message:
-            template_message = template_message + " " + wage_decision.warning_message
+        # 임금 메시지는 기본적으로 별도 필드로 전달하고,
+        # "경고"에 해당하는 경우만 분석 요약(message)에 덧붙입니다.
+        if wage_message_type == "WARNING" and wage_message:
+            template_message = template_message + " " + wage_message
 
         polished = template_message
         prompt_used: str | None = None
@@ -201,6 +214,8 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
             "riskLevel": ui_risk_level,
             "riskSignals": risk_signals,
             "travelBanRegionsMatched": travel_ban_matched,
+            "wageMessageType": wage_message_type,
+            "wageMessage": wage_message,
             "message": polished,
         }
 

@@ -282,6 +282,36 @@
             "type": "array",
             "title": "Travelbanregionsmatched"
           },
+          "wageMessageType": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "INFO",
+              "WARNING",
+              "ERROR"
+            ],
+            "title": "Wagemessagetype",
+            "description": "임금 관련 메시지 유형. NONE이면 wageMessage는 null.",
+            "default": "NONE",
+            "examples": [
+              "WARNING"
+            ]
+          },
+          "wageMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wagemessage",
+            "description": "임금 관련 메시지(경고/안내/오류). 해당 없으면 null.",
+            "examples": [
+              "제안된 시급(5000)이(가) KR의 법정 최저임금(10320)보다 낮습니다. 공고의 급여/근로조건을 다시 확인해 주세요."
+            ]
+          },
           "message": {
             "type": "string",
             "title": "Message"
