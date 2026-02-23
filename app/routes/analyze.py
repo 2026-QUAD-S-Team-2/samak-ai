@@ -173,7 +173,7 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
             trust_score=trust_score,
             risk_score=base_risk_score,
             ui_trust_label=ui_trust_label,
-            has_signals=bool(risk_signals),
+            risk_signals=risk_signals,
             travel_ban_regions=travel_ban_matched,
         )
         # 임금 메시지는 기본적으로 별도 필드로 전달하고,

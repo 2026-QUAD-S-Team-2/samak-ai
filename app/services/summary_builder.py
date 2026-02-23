@@ -13,26 +13,38 @@ def build_template_message(
     trust_score: int,
     risk_score: int,
     ui_trust_label: str,
-    has_signals: bool = False,
+    risk_signals: list[str] | None = None,
+    # backward compatibility: older callers only tell whether signals exist
+    has_signals: bool | None = None,
     travel_ban_regions: list[str] | None = None,
 ) -> str:
     # 요구사항: 자연어는 앞으로 무조건 한국어로 고정 (언어 감지와 무관)
-    if company_name:
-        s1 = f"AI 신뢰도는 {ui_trust_label} 입니다. '{company_name}' 공고는 {trust_score}% 신뢰할 수 있어요."
-    else:
-        s1 = f"AI 신뢰도는 {ui_trust_label} 입니다. 해당 공고는 {trust_score}% 신뢰할 수 있어요."
-    s2 = f"텍스트 패턴 분석 결과, 사기 가능성은 {risk_score}% 수준으로 추정됩니다."
+    # NOTE: 회사명은 UI 레이아웃/정책이 정리되기 전까지 메시지에 넣지 않습니다.
+    _ = company_name
+    _ = risk_score
+
+    s1 = f"AI 분석 결과, 해당 공고는 {ui_trust_label} 단계로 분류되었습니다."
+    s2 = f"신뢰도는 약 {trust_score}%로 분석되었습니다."
     parts: list[str] = [s1, s2]
-    if has_signals:
-        parts.append("또한, 텍스트에서 사기 패턴으로 해석될 수 있는 표현이 일부 탐지되었습니다.")
+
+    signals = [s.strip() for s in (risk_signals or []) if s and s.strip()]
+    if not signals and has_signals:
+        # 신호의 구체 문자열을 알 수 없을 때(구버전 호출자)
+        parts.append("특히 사기 공고에서 자주 사용되는 표현이 포함되어 있습니다.")
+    elif signals:
+        shown = ", ".join([f"‘{s}’" for s in signals[:3]])
+        parts.append(f"특히 {shown} 등 사기 공고에서 자주 사용되는 표현이 포함되어 있습니다.")
     else:
-        parts.append("뚜렷한 사기 패턴 표현은 탐지되지 않았습니다.")
+        parts.append("뚜렷한 사기 공고 패턴 표현은 탐지되지 않았습니다.")
 
     # 위험 신호(사기 패턴) 문장 뒤에 여행금지 문장을 붙이고, 마지막에는 안내 문장을 고정
     regions = [r.strip() for r in (travel_ban_regions or []) if r and r.strip()]
     if regions:
         shown = ", ".join(regions[:5])
-        parts.append(f"또한 공고 텍스트에서 대한민국 외교부가 여행금지 지역으로 지정한 국가/지역({shown})이(가) 언급되었습니다.")
+        parts.append(
+            f"또한 공고 텍스트에서 대한민국 외교부가 여행금지 지역으로 지정한 국가/지역({shown})이(가) 언급되었습니다. "
+            "해당 지역과 관련된 활동은 법적·안전상의 위험이 있을 수 있으므로, 관련 정보를 충분히 확인하시기 바랍니다."
+        )
     return " ".join(parts)
 
 

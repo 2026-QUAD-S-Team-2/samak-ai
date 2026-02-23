@@ -109,7 +109,7 @@ def main() -> int:
         trust_score=scores.trust_score,
         risk_score=scores.risk_score,
         ui_trust_label=scores.ui_trust_label,
-        has_signals=bool(risk_signals),
+        risk_signals=risk_signals,
         travel_ban_regions=risk_regions,
     )
     print("\n=== 3) Template ===")
