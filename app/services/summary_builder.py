@@ -71,18 +71,18 @@ def validate_polished_message(template: str, candidate: str) -> bool:
 
     # 2) 숫자 보존: 템플릿에 들어간 점수(0~100) 및 % 형태가 그대로 포함되어야 함
     # 템플릿에 있는 "58%" 같은 토큰을 그대로 유지하도록 강제
-    score_tokens = re.findall(r"\\b\\d{1,3}%\\b", t)
+    score_tokens = re.findall(r"\b\d{1,3}%\b", t)
     for tok in score_tokens:
         # "58 %"처럼 공백이 끼는 경우를 허용
         digits = tok.replace("%", "")
-        if not re.search(rf"\\b{re.escape(digits)}\\s*%\\b", c):
+        if not re.search(rf"\b{re.escape(digits)}\s*%\b", c):
             return False
 
     # (보조) 템플릿의 0~100 숫자(정수)가 candidate에서 사라지면 실패
-    nums = re.findall(r"\\b\\d{1,3}\\b", t)
+    nums = re.findall(r"\b\d{1,3}\b", t)
     must_keep_ints = [n for n in nums if 0 <= int(n) <= 100]
     for n in must_keep_ints:
-        if re.search(rf"\\b{re.escape(n)}\\b", c) is None:
+        if re.search(rf"\b{re.escape(n)}\b", c) is None:
             return False
 
     # 3) 새로운 사실 추가 금지(키워드 기반)
