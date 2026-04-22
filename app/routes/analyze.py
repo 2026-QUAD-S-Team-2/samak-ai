@@ -14,21 +14,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from urllib.parse import urlparse
 from uuid import uuid4
 
-import httpx
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Request
 
-from app.api_models import AnalyzeImageRequest, AnalyzeImageResponse, AnalyzeImagesResponse
-from app.ml.message_risk_rules import extract_risk_signals
 from app.ml.ml_baseline import BaselineModel, ModelArtifactsError
 from app.ml.risk_regions import find_risk_regions
 from app.services.gemini_service import analyze_with_gemini, polish_with_gemini
 from app.services.ocr_service import OCRResult, ocr_from_bytes, ocr_from_url
 from app.services.scoring_service import PredictionScores, score_prediction
 from app.services.summary_builder import build_template_message
-from app.services.wage_service import WageScores, apply_wage_adjustments, cap_scores, decide_wage_warning
 
 
 logger = logging.getLogger(__name__)
@@ -40,36 +35,12 @@ _BORDER_LOW = 0.20
 _BORDER_HIGH = 0.80
 
 
-def _is_valid_image_url(url: str) -> bool:
-    try:
-        p = urlparse(url)
-    except Exception:  # noqa: BLE001
-        return False
-    if p.scheme not in {"http", "https"}:
-        return False
-    if not p.netloc:
-        return False
-    return True
-
-
-async def _download_image_bytes(image_url: str) -> bytes:
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.get(image_url)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"이미지 다운로드 실패: {e}") from e
-
-    if resp.status_code < 200 or resp.status_code >= 300:
-        raise HTTPException(status_code=400, detail=f"이미지 다운로드 실패: HTTP {resp.status_code}")
-
-    content_type = (resp.headers.get("content-type") or "").lower()
-    if content_type and not content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail=f"이미지 다운로드 실패: content-type={content_type}")
-
-    data = resp.content or b""
-    if not data:
-        raise HTTPException(status_code=400, detail="이미지 다운로드 실패: empty body")
-    return data
+def _get_str(meta: dict[str, object], key: str) -> str | None:
+    v = meta.get(key)
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s or None
 
 
 async def _run_analysis(
@@ -89,30 +60,44 @@ async def _run_analysis(
                 ocr = ocr_from_url(image_url or "")
         except Exception as e:  # noqa: BLE001
             logger.exception("OCR failed: %s", e)
-            # 기존 비즈니스 로직 유지: OCR 실패 자체는 200 응답으로 처리(UNKNOWN)
-            from app.services.ocr_service import OCRResult  # local import to avoid unused import in happy path
-
             ocr = OCRResult.empty(error=f"OCR 실패: {e}")
 
-        company_name = None
+    analysis_type = (_get_str(meta, "type") or "JOB_POST").upper()
+    if analysis_type not in {"JOB_POST", "MESSAGE"}:
+        analysis_type = "JOB_POST"
 
-        # 안전장치: OCR 텍스트가 너무 짧으면 ML 추론을 건너뜁니다.
-        if ocr.text_length < 30:
-            analysis_id = str(uuid4())
-            message = "텍스트 추출에 실패했습니다. 더 선명한 이미지로 다시 시도해 주세요."
-            resp: dict = {
-                "analysisId": analysis_id,
+    company_name = _get_str(meta, "companyName")
+
+    # 안전장치: OCR 텍스트가 너무 짧으면 ML 추론을 건너뜁니다.
+    if ocr.text_length < 30:
+        analysis_id = str(uuid4())
+        message = "텍스트 추출에 실패했습니다. 더 선명한 이미지로 다시 시도해 주세요."
+        resp: dict = {
+            "analysisId": analysis_id,
+            "type": analysis_type,
+            "ocr": {
+                "textPreview": ocr.text_preview,
+                "textLength": ocr.text_length,
+                "languageGuess": ocr.language_guess,
+                "confidenceAvg": ocr.confidence_avg,
+            },
+            "mlPrediction": {
+                "modelVersion": "fraud-baseline-v1.0.0",
                 "fraudProbability": None,
                 "riskScore": None,
-                "riskLevel": "UNKNOWN",
+                "riskLevel": None,
+                "thresholdUsed": None,
+            },
+            "explanation": {
                 "riskSignals": [],
-                "travelBanRegionsMatched": travel_ban_matched,
-                "wageMessageType": wage_message_type,
-                "wageMessage": wage_message,
-                "message": message,
-            }
-            background_tasks.add_task(push_analysis_result, resp)
-            return resp
+                "note": "Signals are matched against predefined scam-pattern rules.",
+            },
+            "ui": {"riskLevel": "UNKNOWN", "trustLabel": None, "trustScore": None},
+            "analysisSummary": {"score": None, "label": None, "message": message},
+        }
+        if debug:
+            resp["debug"] = {"ocrError": ocr.error}
+        return resp
 
     # ML 1차 판단
     used_model = False
@@ -199,17 +184,36 @@ async def _run_analysis(
         except Exception as e:  # noqa: BLE001
             logger.exception("Gemini polish failed: %s", e)
 
-        analysis_id = str(uuid4())
+    analysis_id = str(uuid4())
 
-        resp: dict = {
-            "analysisId": analysis_id,
-            "fraudProbability": float(min(0.99, max(0.0, float(fraud_prob)))),
-            "riskScore": base_risk_score,
-            "riskLevel": ui_risk_level,
+    resp = {
+        "analysisId": analysis_id,
+        "type": analysis_type,
+        "ocr": {
+            "textPreview": ocr.text_preview,
+            "textLength": ocr.text_length,
+            "languageGuess": ocr.language_guess,
+            "confidenceAvg": ocr.confidence_avg,
+        },
+        "mlPrediction": {
+            "modelVersion": model_version,
+            "fraudProbability": float(fraud_prob),
+            "riskScore": scores.risk_score,
+            "riskLevel": scores.model_risk_level,
+            "thresholdUsed": float(threshold_used),
+        },
+        "explanation": {
             "riskSignals": risk_signals,
-            "travelBanRegionsMatched": travel_ban_matched,
-            "wageMessageType": wage_message_type,
-            "wageMessage": wage_message,
+            "note": "Signals are matched against predefined scam-pattern rules.",
+        },
+        "ui": {
+            "riskLevel": scores.ui_risk_level,
+            "trustLabel": scores.ui_trust_label,
+            "trustScore": scores.trust_score,
+        },
+        "analysisSummary": {
+            "score": scores.trust_score,
+            "label": scores.ui_trust_label,
             "message": polished,
         },
     }
