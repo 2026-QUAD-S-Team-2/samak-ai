@@ -4,12 +4,15 @@ from __future__ import annotations
 이미지 기반 공고/채팅 분석 API 라우트.
 
 입력:
-- application/json: { "imageUrls": ["https://..."], "countryCode": "KR", "salary": "..." } (단일 입력 호환: imageUrl)
+- multipart/form-data: multipartFile (이미지)
+- 또는 application/json: { "imageUrl": "..." } (단일) 또는 { "imageUrls": [...] } (복수)
 
 처리:
-이미지 → OCR → ML 추론 → scoring → 템플릿 summary → (옵션) Gemini polish → 응답
+이미지 → OCR → ML 추론 → Confidence Gating → (경계 구간) Gemini 심층 분석
+→ 점수 계산 → 메시지 생성 → 응답
 """
 
+import asyncio
 import logging
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -20,11 +23,10 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from app.api_models import AnalyzeImageRequest, AnalyzeImageResponse, AnalyzeImagesResponse
 from app.ml.message_risk_rules import extract_risk_signals
 from app.ml.ml_baseline import BaselineModel, ModelArtifactsError
-from app.ml.risk_regions import match_risk_regions_by_country_code
-from app.services.backend_push import push_analysis_result
-from app.services.gemini_service import polish_with_gemini
-from app.services.ocr_service import ocr_from_bytes
-from app.services.scoring_service import PredictionScores, score_prediction, ui_policy_from_probability
+from app.ml.risk_regions import find_risk_regions
+from app.services.gemini_service import analyze_with_gemini, polish_with_gemini
+from app.services.ocr_service import OCRResult, ocr_from_bytes, ocr_from_url
+from app.services.scoring_service import PredictionScores, score_prediction
 from app.services.summary_builder import build_template_message
 from app.services.wage_service import WageScores, apply_wage_adjustments, cap_scores, decide_wage_warning
 
@@ -32,6 +34,10 @@ from app.services.wage_service import WageScores, apply_wage_adjustments, cap_sc
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/analyze", tags=["analyze"])
+
+# Confidence gating 임계값: 이 구간의 케이스만 Gemini 심층 분석 호출
+_BORDER_LOW = 0.20
+_BORDER_HIGH = 0.80
 
 
 def _is_valid_image_url(url: str) -> bool:
@@ -66,46 +72,21 @@ async def _download_image_bytes(image_url: str) -> bytes:
     return data
 
 
-@router.post("/image", response_model=AnalyzeImageResponse | AnalyzeImagesResponse)
-async def analyze_image(payload: AnalyzeImageRequest, background_tasks: BackgroundTasks) -> dict:
-    """
-    POST /v1/analyze/image
-
-    - application/json: imageUrls(필수, 1개 이상), countryCode(필수), salary(선택), debug(선택)
-      - 단일 입력 호환: imageUrl
-    """
-    image_urls = [str(u or "").strip() for u in (payload.imageUrls or [])]
-    image_urls = [u for u in image_urls if u]
-    if not image_urls:
-        raise HTTPException(status_code=422, detail="imageUrls는 최소 1개 이상이어야 합니다.")
-
-    for i, u in enumerate(image_urls):
-        if not _is_valid_image_url(u):
-            raise HTTPException(status_code=400, detail=f"imageUrls[{i}]가 올바르지 않습니다. (http/https URL 필요)")
-
-    country_code = payload.countryCode
-    travel_ban_matched = match_risk_regions_by_country_code(country_code)
-
-    salary_text = payload.salaryText
-    has_salary = salary_text is not None and str(salary_text).strip() != ""
-    salary_line = f"\n[salary] {str(salary_text)}" if has_salary else ""
-
-    wage_decision = await decide_wage_warning(country_code=country_code, salary_text=salary_text)
-    wage_message = wage_decision.warning_message
-    if wage_decision.warning_kind in {"min_wage_low", "high_salary"}:
-        wage_message_type = "WARNING"
-    elif wage_decision.warning_kind in {"parse_error", "mismatch"}:
-        wage_message_type = "ERROR"
-    elif wage_decision.warning_kind == "missing":
-        wage_message_type = "INFO" if wage_message else "NONE"
+async def _run_analysis(
+    image_bytes: bytes | None,
+    image_url: str | None,
+    meta: dict[str, object],
+    debug: bool,
+) -> dict:
+    """단일 이미지에 대한 전체 분석 파이프라인."""
+    if image_bytes is None and not image_url:
+        ocr: OCRResult = OCRResult.empty(error="이미지 파일(multipartFile) 또는 imageUrl이 필요합니다.")
     else:
-        wage_message_type = "NONE"
-
-    async def _analyze_one_image_url(image_url: str) -> dict:
-        image_bytes = await _download_image_bytes(image_url)
-
         try:
-            ocr = ocr_from_bytes(image_bytes)
+            if image_bytes is not None:
+                ocr = ocr_from_bytes(image_bytes)
+            else:
+                ocr = ocr_from_url(image_url or "")
         except Exception as e:  # noqa: BLE001
             logger.exception("OCR failed: %s", e)
             # 기존 비즈니스 로직 유지: OCR 실패 자체는 200 응답으로 처리(UNKNOWN)
@@ -133,67 +114,80 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
             background_tasks.add_task(push_analysis_result, resp)
             return resp
 
-        # ML baseline (로컬 아티팩트)
-        used_model = False
+    # ML 1차 판단
+    used_model = False
+    cleaned_input = ""
+    model = None  # type: ignore[assignment]
+    try:
+        model = BaselineModel.load_default()
+        fraud_prob = model.predict_proba_from_ocr(ocr.text)
+        risk_signals = model.risk_signals_from_ocr(ocr.text, top_k=3)
+        cleaned_input = model.get_cleaned_input_from_ocr(ocr.text)
+        risk_regions = find_risk_regions(cleaned_input, top_k=5)
+        threshold_used = model.threshold
+        model_version = model.model_version
+        used_model = True
+    except ModelArtifactsError as e:
+        logger.error("Model load failed: %s", e)
+        fraud_prob = 0.0
+        risk_signals = []
+        risk_regions = []
+        threshold_used = 0.5
+        model_version = "fraud-baseline-v1.0.0"
+
+    # Confidence gating: 경계 구간(20%~80%)에서만 Gemini 심층 분석 (LLM as a Judge)
+    gemini_reasoning = ""
+    used_gemini_for_analysis = False
+    if used_model and _BORDER_LOW <= float(fraud_prob) <= _BORDER_HIGH:
         try:
-            model = BaselineModel.load_default()
-            cleaned_input = model.get_cleaned_input_from_ocr(ocr.text)
-            cleaned_input = cleaned_input + salary_line
-            fraud_prob = model.predict_proba(cleaned_input)
-            risk_signals = extract_risk_signals(cleaned_input, top_k=3)
-            threshold_used = model.threshold
-            used_model = True
-        except ModelArtifactsError as e:
-            logger.error("Model load failed: %s", e)
-            fraud_prob = 0.0
-            risk_signals = []
-            threshold_used = 0.5
+            gemini_analysis = analyze_with_gemini(
+                ocr_text=cleaned_input,
+                ml_probability=float(fraud_prob),
+                ml_risk_signals=risk_signals,
+            )
+            if gemini_analysis.used_gemini and not gemini_analysis.error:
+                # 가중 평균: ML 40% + Gemini 60%
+                fraud_prob = 0.4 * float(fraud_prob) + 0.6 * gemini_analysis.fraud_probability
+                if gemini_analysis.risk_signals:
+                    risk_signals = gemini_analysis.risk_signals
+                gemini_reasoning = gemini_analysis.reasoning
+                used_gemini_for_analysis = True
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Gemini analysis failed: %s", e)
 
-        scores: PredictionScores = score_prediction(fraud_prob, threshold_used)
+    scores: PredictionScores = score_prediction(fraud_prob, threshold_used)
 
-        # 점수 cap (100은 사용하지 않음)
-        base_risk_score = int(min(99, scores.risk_score))
-        if travel_ban_matched:
-            base_risk_score = int(min(99, round(base_risk_score * 1.15)))
-        trust_score = int(min(99, max(0, 100 - base_risk_score)))
+    # 메시지 생성
+    polished = ""
+    prompt_used: str | None = None
+    used_gemini = False
+    fallback_to_template = True
+    no_change = False
+    gemini_error: str | None = None
 
-        # 임금 경고 기반 점수 조정(점수 None-safe)
-        adjusted = apply_wage_adjustments(
-            scores=WageScores(risk_score=base_risk_score, trust_score=trust_score, fraud_probability=float(fraud_prob)),
-            warning_kind=wage_decision.warning_kind,
-        )
-        adjusted = cap_scores(adjusted)
-        base_risk_score = adjusted.risk_score if adjusted.risk_score is not None else base_risk_score
-        trust_score = adjusted.trust_score if adjusted.trust_score is not None else trust_score
-        fraud_prob = adjusted.fraud_probability if adjusted.fraud_probability is not None else fraud_prob
-        ui_risk_level, ui_trust_label = ui_policy_from_probability(float(fraud_prob))
-
+    if used_gemini_for_analysis and gemini_reasoning:
+        # Gemini가 직접 심층 판단한 케이스: reasoning을 최종 메시지로 사용
+        polished = gemini_reasoning
+        used_gemini = True
+        fallback_to_template = False
+    else:
+        # ML 단독 판단 케이스: 템플릿 생성 후 Gemini polish
         template_message = build_template_message(
             company_name=company_name,
-            trust_score=trust_score,
-            risk_score=base_risk_score,
-            ui_trust_label=ui_trust_label,
-            risk_signals=risk_signals,
-            travel_ban_regions=travel_ban_matched,
+            trust_score=scores.trust_score,
+            risk_score=scores.risk_score,
+            ui_trust_label=scores.ui_trust_label,
+            has_signals=bool(risk_signals),
+            travel_ban_regions=risk_regions,
         )
-        # 임금 메시지는 기본적으로 별도 필드로 전달하고,
-        # "경고"에 해당하는 경우만 분석 요약(message)에 덧붙입니다.
-        if wage_message_type == "WARNING" and wage_message:
-            template_message = template_message + " " + wage_message
-
         polished = template_message
-        prompt_used: str | None = None
-        used_gemini = False
-        fallback_to_template = True
-        no_change = False
-        gemini_error: str | None = None
         try:
             gemini_out = polish_with_gemini(
                 template_message=template_message,
-                trust_score=trust_score,
+                trust_score=scores.trust_score,
                 trust_label=scores.ui_trust_label,
                 fraud_probability=fraud_prob,
-                risk_score=base_risk_score,
+                risk_score=scores.risk_score,
                 risk_signals=risk_signals,
             )
             prompt_used = gemini_out.prompt_used
@@ -217,26 +211,79 @@ async def analyze_image(payload: AnalyzeImageRequest, background_tasks: Backgrou
             "wageMessageType": wage_message_type,
             "wageMessage": wage_message,
             "message": polished,
+        },
+    }
+
+    if debug:
+        resp["debug"] = {
+            "usedGeminiAnalysis": used_gemini_for_analysis,
+            "usedGemini": used_gemini,
+            "fallbackToTemplate": fallback_to_template,
+            "noChange": no_change,
+            "promptUsed": prompt_used,
+            "geminiError": gemini_error,
+            "ocrError": ocr.error,
         }
+        if model is not None:
+            resp["debug"]["inputStructured"] = model.structure_ocr_text(ocr.text)
+            resp["debug"]["inputCleaned"] = model.get_cleaned_input_from_ocr(ocr.text)
+            resp["debug"]["explanation"] = {"riskSignals": risk_signals}
+            resp["debug"]["riskRegionsMatched"] = risk_regions
 
-        background_tasks.add_task(push_analysis_result, resp)
+    return resp
 
-        if payload.debug:
-            logger.info(
-                "debug: usedModel=%s usedGemini=%s fallback=%s noChange=%s geminiError=%s ocrError=%s promptUsed_len=%s",
-                used_model,
-                used_gemini,
-                fallback_to_template,
-                no_change,
-                gemini_error,
-                ocr.error,
-                len(prompt_used or ""),
-            )
 
-        return resp
+@router.post("/image")
+async def analyze_image(request: Request, debug: bool = False) -> dict:
+    """
+    POST /v1/analyze/image
 
-    if len(image_urls) == 1:
-        return await _analyze_one_image_url(image_urls[0])
+    - multipart/form-data: multipartFile (필수) + (옵션) meta fields
+    - application/json: imageUrl (단일) 또는 imageUrls (복수, 5장 이상 병렬 처리) + (옵션) meta fields
+    """
+    content_type = (request.headers.get("content-type") or "").lower()
 
-    results = [await _analyze_one_image_url(u) for u in image_urls]
-    return {"results": results}
+    image_bytes: bytes | None = None
+    image_url: str | None = None
+    image_urls: list[str] = []
+    meta: dict[str, object] = {}
+
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        file = form.get("multipartFile")
+        if file is not None:
+            image_bytes = await file.read()  # type: ignore[union-attr]
+        for k in ["companyName", "countryCode", "region", "channel", "sourceUrl", "type"]:
+            if k in form:
+                meta[k] = str(form.get(k) or "")
+    else:
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        if isinstance(body, dict):
+            image_url = _get_str(body, "imageUrl")
+            urls_raw = body.get("imageUrls")
+            if isinstance(urls_raw, list):
+                image_urls = [str(u).strip() for u in urls_raw if u and str(u).strip()]
+            meta_obj = body.get("meta")
+            if isinstance(meta_obj, dict):
+                meta = meta_obj
+            else:
+                for k in ["companyName", "countryCode", "region", "channel", "sourceUrl", "type"]:
+                    if k in body:
+                        meta[k] = body.get(k)
+
+    # 복수 이미지 처리
+    if image_urls:
+        if len(image_urls) >= 5:
+            # 5장 이상: asyncio.gather로 병렬 처리 (I/O bound 구간에서 속도 향상)
+            results = list(await asyncio.gather(
+                *[_run_analysis(None, url, meta, debug) for url in image_urls]
+            ))
+        else:
+            results = [await _run_analysis(None, url, meta, debug) for url in image_urls]
+        return {"results": results}
+
+    # 단일 이미지 처리
+    return await _run_analysis(image_bytes, image_url, meta, debug)

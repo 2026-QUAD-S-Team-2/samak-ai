@@ -20,7 +20,7 @@ from pathlib import Path
 import re
 import sys
 import json
-from typing import Any, Iterable, Sequence, cast
+from typing import Any, Iterable, Sequence
 
 # `python training/preprocess.py`로 실행 시에도 동작하도록 경로 보정
 if __package__ in {None, ""}:
