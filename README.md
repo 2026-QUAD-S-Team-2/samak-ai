@@ -221,19 +221,6 @@ countryCode   : KR
 
 ## 실행 방법
 
-### 로컬 실행
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-
-cp .env.example .env
-# .env 파일에 GEMINI_API_KEY=your_key_here 입력
-
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
 ### Docker 실행
 
 ```bash
@@ -257,40 +244,4 @@ curl -sS http://localhost:8000/v1/analyze/image \
 
 # 로컬 파일 테스트 (서버 없이)
 python scripts/local_test.py --file ./scripts/sample.png
-```
-
----
-
-## 모델 학습
-
-학습 데이터는 `training/data/` 아래에 CSV 파일로 준비합니다.
-
-```bash
-# 1. 전처리 (train/test split 포함)
-python training/preprocess.py
-
-# 2. 학습
-python training/train_baseline.py train \
-  --train-path training/data/processed/train.csv \
-  --out-dir training/runs/tfidf_lr
-
-# 3. 평가 및 threshold 최적화
-python training/evaluate_baseline.py \
-  --model-dir training/runs/tfidf_lr \
-  --train-path training/data/processed/train.csv \
-  --test-path training/data/processed/test.csv \
-  --tune
-
-# 4. 서빙 디렉토리로 export (원자적 교체)
-python training/train_baseline.py export \
-  --model-dir training/runs/tfidf_lr \
-  --export-dir models/fraud-baseline
-```
-
-모델 파일 구조:
-```
-models/fraud-baseline/
-├── vectorizer.joblib   # TF-IDF 벡터라이저
-├── model.joblib        # Logistic Regression 모델
-└── metadata.json       # threshold, version 정보
 ```

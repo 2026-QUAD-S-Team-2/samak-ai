@@ -73,6 +73,15 @@ MVP 1차 기준으로 아래 컬럼들은 제거합니다:
   - `combined_train.csv` / `train.csv`: 학습용(RecruitmentScam train + augment)
   - `test.csv`: 평가용(RecruitmentScam test only)
 
+## 모델 파일 구조
+
+```
+models/fraud-baseline/
+├── vectorizer.joblib   # TF-IDF 벡터라이저
+├── model.joblib        # Logistic Regression 모델
+└── metadata.json       # threshold, version 정보
+```
+
 ## 참고 사항
 
 - 외부 사실 기반 feature(회사 규모, 지도/리뷰 등)는 이 AI 서비스의 범위 밖입니다.
