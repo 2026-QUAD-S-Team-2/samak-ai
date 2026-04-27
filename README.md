@@ -228,16 +228,16 @@ countryCode   : KR
 
 ### 구성 개요
 
-동일한 EC2 인스턴스에서 **RabbitMQ**와 **AI 서버** 두 컨테이너를 함께 띄웁니다.
+동일한 VM 인스턴스에서 **RabbitMQ**와 **AI 서버** 두 컨테이너를 함께 띄웁니다.
 
 ```
-EC2 인스턴스
+VM 인스턴스
 ├── rabbitmq 컨테이너  (포트 5672, 15672)
 └── samak-ai 컨테이너  (포트 8000)
     └── 시작 시 rabbitmq:5672 로 자동 연결
 ```
 
-Spring Boot 백엔드는 같은 EC2에서 `localhost:5672` 로 RabbitMQ에 접속합니다.
+Spring Boot 백엔드는 같은 VM에서 `localhost:5672` 로 RabbitMQ에 접속합니다.
 
 ---
 
@@ -283,7 +283,7 @@ curl http://localhost:8000/healthz
 docker compose logs samak-ai
 
 # RabbitMQ Management UI (Exchange/Queue 선언 확인)
-# http://<EC2_PUBLIC_IP>:15672
+# http://<VM_EXTERNAL_IP>:15672
 ```
 
 ---
