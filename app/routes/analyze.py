@@ -8,8 +8,7 @@ from __future__ import annotations
 - 또는 application/json: { "imageUrl": "..." } (단일) 또는 { "imageUrls": [...] } (복수)
 
 처리:
-이미지 → OCR → ML 추론 → Confidence Gating → (경계 구간) Gemini 심층 분석
-→ 점수 계산 → 메시지 생성 → 응답
+이미지 → [OCR + Gemini Vision 병렬] → ML 추론 → 앙상블 → 점수 계산 → 메시지 생성 → 응답
 """
 
 import asyncio
@@ -22,7 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.ml.ml_baseline import BaselineModel, ModelArtifactsError
 from app.ml.risk_regions import find_risk_regions
-from app.services.gemini_service import analyze_with_gemini, polish_with_gemini
+from app.services.gemini_service import GeminiVisionResult, analyze_image_with_gemini_vision, polish_with_gemini
 from app.services.ocr_service import OCRResult, ocr_from_bytes
 from app.services.scoring_service import PredictionScores, score_prediction
 from app.services.summary_builder import build_template_message
@@ -31,10 +30,6 @@ from app.services.summary_builder import build_template_message
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/analyze", tags=["analyze"])
-
-# Confidence gating 임계값: 이 구간의 케이스만 Gemini 심층 분석 호출
-_BORDER_LOW = 0.20
-_BORDER_HIGH = 0.80
 
 _URL_SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)
 MAX_IMAGE_BATCH = 10
@@ -54,15 +49,6 @@ def _init_model() -> None:
         logger.warning("ML 모델 로드 실패 (시작 시, 첫 요청 시 재시도): %s", e)
 
 
-async def _download_image_bytes(url: str) -> bytes:
-    try:
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"이미지 다운로드 실패: {e}") from e
-    return r.content
-
-
 def _get_str(meta: dict[str, object], key: str) -> str | None:
     v = meta.get(key)
     if v is None:
@@ -71,20 +57,41 @@ def _get_str(meta: dict[str, object], key: str) -> str | None:
     return s or None
 
 
+async def _download_image_bytes(url: str) -> bytes:
+    try:
+        r = await asyncio.to_thread(requests.get, url, timeout=10)
+        r.raise_for_status()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"이미지 다운로드 실패: {e}") from e
+    return r.content
+
+
 async def _run_analysis(
     image_bytes: bytes | None,
     meta: dict[str, object],
     debug: bool,
 ) -> dict:
     """단일 이미지에 대한 전체 분석 파이프라인."""
-    if image_bytes is None:
-        ocr: OCRResult = OCRResult.empty(error="이미지 바이트가 필요합니다.")
-    else:
+
+    async def _run_ocr() -> OCRResult:
+        if not image_bytes:
+            return OCRResult.empty(error="이미지 바이트가 없습니다.")
         try:
-            ocr = ocr_from_bytes(image_bytes)
+            return await asyncio.to_thread(ocr_from_bytes, image_bytes)
         except Exception as e:  # noqa: BLE001
             logger.exception("OCR failed: %s", e)
-            ocr = OCRResult.empty(error=f"OCR 실패: {e}")
+            return OCRResult.empty(error=f"OCR 실패: {e}")
+
+    async def _run_vision() -> GeminiVisionResult:
+        if not image_bytes:
+            return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=False, error="image_bytes is empty")
+        try:
+            return await asyncio.to_thread(analyze_image_with_gemini_vision, image_bytes)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Gemini Vision failed: %s", e)
+            return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=True, error=str(e))
+
+    ocr, vision_result = await asyncio.gather(_run_ocr(), _run_vision())
 
     analysis_type = (_get_str(meta, "type") or "JOB_POST").upper()
     if analysis_type not in {"JOB_POST", "MESSAGE"}:
@@ -126,7 +133,6 @@ async def _run_analysis(
 
     # ML 1차 판단
     global _MODEL_CACHE
-    used_model = False
     cleaned_input = ""
     model = None  # type: ignore[assignment]
     try:
@@ -139,11 +145,10 @@ async def _run_analysis(
         risk_regions = find_risk_regions(cleaned_input, top_k=5)
         threshold_used = model.threshold
         model_version = model.model_version
-        used_model = True
     except ModelArtifactsError as e:
         logger.error("모델 아티팩트 로드 실패, UNKNOWN 반환: %s", e)
         analysis_id = str(uuid4())
-        resp: dict = {
+        resp = {
             "analysisId": analysis_id,
             "type": analysis_type,
             "ocr": {
@@ -168,69 +173,55 @@ async def _run_analysis(
             resp["debug"] = {"modelError": str(e)}
         return resp
 
-    # Confidence gating: 경계 구간(20%~80%)에서만 Gemini 심층 분석 (LLM as a Judge)
-    gemini_reasoning = ""
-    used_gemini_for_analysis = False
-    if used_model and _BORDER_LOW <= float(fraud_prob) <= _BORDER_HIGH:
-        try:
-            gemini_analysis = analyze_with_gemini(
-                ocr_text=cleaned_input,
-                ml_probability=float(fraud_prob),
-                ml_risk_signals=risk_signals,
-            )
-            if gemini_analysis.used_gemini and not gemini_analysis.error:
-                # 가중 평균: ML 40% + Gemini 60%
-                fraud_prob = 0.4 * float(fraud_prob) + 0.6 * gemini_analysis.fraud_probability
-                if gemini_analysis.risk_signals:
-                    risk_signals = gemini_analysis.risk_signals
-                gemini_reasoning = gemini_analysis.reasoning
-                used_gemini_for_analysis = True
-        except Exception as e:  # noqa: BLE001
-            logger.exception("Gemini analysis failed: %s", e)
+    # Vision 앙상블: ML 40% + Gemini Vision 60%
+    used_vision = False
+    vision_error: str | None = None
+    if vision_result.used_gemini and not vision_result.error:
+        fraud_prob = 0.4 * float(fraud_prob) + 0.6 * vision_result.fraud_probability
+        if vision_result.risk_signals:
+            risk_signals = vision_result.risk_signals
+        used_vision = True
+    else:
+        vision_error = vision_result.error
+        if vision_error:
+            logger.warning("Gemini Vision fallback to ML-only: %s", vision_error)
 
     scores: PredictionScores = score_prediction(fraud_prob, threshold_used)
 
-    # 메시지 생성
-    polished = ""
+    # 메시지 생성: 항상 템플릿 → polish_with_gemini 경로
     prompt_used: str | None = None
     used_gemini = False
     fallback_to_template = True
     no_change = False
     gemini_error: str | None = None
 
-    if used_gemini_for_analysis and gemini_reasoning:
-        # Gemini가 직접 심층 판단한 케이스: reasoning을 최종 메시지로 사용
-        polished = gemini_reasoning
-        used_gemini = True
-        fallback_to_template = False
-    else:
-        # ML 단독 판단 케이스: 템플릿 생성 후 Gemini polish
-        template_message = build_template_message(
-            company_name=company_name,
+    template_message = build_template_message(
+        company_name=company_name,
+        trust_score=scores.trust_score,
+        risk_score=scores.risk_score,
+        ui_trust_label=scores.ui_trust_label,
+        has_signals=bool(risk_signals),
+        travel_ban_regions=risk_regions,
+    )
+    polished = template_message
+    try:
+        gemini_out = await asyncio.to_thread(
+            polish_with_gemini,
+            template_message=template_message,
             trust_score=scores.trust_score,
+            trust_label=scores.ui_trust_label,
+            fraud_probability=fraud_prob,
             risk_score=scores.risk_score,
-            ui_trust_label=scores.ui_trust_label,
-            has_signals=bool(risk_signals),
-            travel_ban_regions=risk_regions,
+            risk_signals=risk_signals,
         )
-        polished = template_message
-        try:
-            gemini_out = polish_with_gemini(
-                template_message=template_message,
-                trust_score=scores.trust_score,
-                trust_label=scores.ui_trust_label,
-                fraud_probability=fraud_prob,
-                risk_score=scores.risk_score,
-                risk_signals=risk_signals,
-            )
-            prompt_used = gemini_out.prompt_used
-            polished = gemini_out.message
-            used_gemini = gemini_out.used_gemini
-            fallback_to_template = gemini_out.fallback_to_template
-            no_change = gemini_out.no_change
-            gemini_error = gemini_out.error
-        except Exception as e:  # noqa: BLE001
-            logger.exception("Gemini polish failed: %s", e)
+        prompt_used = gemini_out.prompt_used
+        polished = gemini_out.message
+        used_gemini = gemini_out.used_gemini
+        fallback_to_template = gemini_out.fallback_to_template
+        no_change = gemini_out.no_change
+        gemini_error = gemini_out.error
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Gemini polish failed: %s", e)
 
     analysis_id = str(uuid4())
 
@@ -269,7 +260,9 @@ async def _run_analysis(
 
     if debug:
         resp["debug"] = {
-            "usedGeminiAnalysis": used_gemini_for_analysis,
+            "usedGeminiVision": used_vision,
+            "visionFraudProbability": vision_result.fraud_probability if used_vision else None,
+            "visionError": vision_error,
             "usedGemini": used_gemini,
             "fallbackToTemplate": fallback_to_template,
             "noChange": no_change,
@@ -347,7 +340,6 @@ async def analyze_image(request: Request, debug: bool = False) -> dict:
             bts = await _download_image_bytes(image_urls[0])
             return await _run_analysis(bts, meta, debug)
         if len(image_urls) >= 5:
-            # 5장 이상: asyncio.gather로 병렬 다운로드 + 분석
             all_bytes = await asyncio.gather(*[_download_image_bytes(u) for u in image_urls])
             results = list(await asyncio.gather(*[_run_analysis(b, meta, debug) for b in all_bytes]))
         else:
