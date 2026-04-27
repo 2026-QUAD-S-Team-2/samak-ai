@@ -214,6 +214,11 @@ countryCode   : KR
 | `GEMINI_API_KEY` | (없음) | Google Gemini API 키. 없으면 ML + 템플릿으로만 동작 |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | 사용할 Gemini 모델 |
 | `LOG_LEVEL` | `INFO` | Python 로깅 레벨 |
+| `RABBITMQ_USERNAME` | `guest` | RabbitMQ 접속 계정 |
+| `RABBITMQ_PASSWORD` | `guest` | RabbitMQ 접속 비밀번호 |
+| `RABBITMQ_URL` | `amqp://guest:guest@localhost:5672/` | RabbitMQ 연결 URL (Docker Compose 사용 시 자동 주입) |
+| `RABBITMQ_PREFETCH` | `1` | 동시에 처리할 최대 메시지 수 |
+| `RABBITMQ_RECONNECT_DELAY` | `5` | 연결 끊김 후 재연결 대기 시간(초) |
 
 `.env.example`을 복사해 `.env`로 사용하세요.
 
@@ -221,27 +226,76 @@ countryCode   : KR
 
 ## 실행 방법
 
-### Docker 실행
+### 구성 개요
 
-```bash
-docker build -t samak-ai .
-docker run --rm -p 8000:8000 \
-  -e GEMINI_API_KEY=your_key_here \
-  -e MODEL_DIR=/app/models/fraud-baseline \
-  samak-ai
+동일한 EC2 인스턴스에서 **RabbitMQ**와 **AI 서버** 두 컨테이너를 함께 띄웁니다.
+
+```
+EC2 인스턴스
+├── rabbitmq 컨테이너  (포트 5672, 15672)
+└── samak-ai 컨테이너  (포트 8000)
+    └── 시작 시 rabbitmq:5672 로 자동 연결
 ```
 
-### 동작 확인
+Spring Boot 백엔드는 같은 EC2에서 `localhost:5672` 로 RabbitMQ에 접속합니다.
+
+---
+
+### 1. 환경 변수 설정
 
 ```bash
-# 헬스 체크
+cp .env.example .env
+```
+
+`.env`에 아래 항목을 채워 넣습니다:
+
+```bash
+GEMINI_API_KEY=your_gemini_api_key
+
+RABBITMQ_USERNAME=your_username
+RABBITMQ_PASSWORD=your_password
+```
+
+---
+
+### 2. 서버 실행
+
+```bash
+docker compose up -d --build
+```
+
+내부 실행 순서:
+1. `rabbitmq` 컨테이너 시작 → `rabbitmq-diagnostics ping` 헬스체크 통과 대기 (최대 50초)
+2. `samak-ai` 이미지 빌드 후 컨테이너 시작 → consumer가 `rabbitmq:5672`로 자동 연결
+
+---
+
+### 3. 동작 확인
+
+```bash
+# 컨테이너 상태 확인
+docker compose ps
+
+# AI 서버 헬스 체크
 curl http://localhost:8000/healthz
 
-# 분석 요청
-curl -sS http://localhost:8000/v1/analyze/image \
-  -H 'content-type: application/json' \
-  -d '{"imageUrl":"https://example.com/sample.png","meta":{"countryCode":"KR"}}'
+# AI 서버 로그 확인 (RabbitMQ 연결 메시지 확인)
+docker compose logs samak-ai
 
-# 로컬 파일 테스트 (서버 없이)
-python scripts/local_test.py --file ./scripts/sample.png
+# RabbitMQ Management UI (Exchange/Queue 선언 확인)
+# http://<EC2_PUBLIC_IP>:15672
+```
+
+---
+
+### 4. 서버 중지
+
+```bash
+docker compose down
+```
+
+RabbitMQ 데이터(메시지 큐)까지 초기화하려면:
+
+```bash
+docker compose down -v
 ```

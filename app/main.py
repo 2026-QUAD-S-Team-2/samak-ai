@@ -12,12 +12,15 @@ MVP: "이미지 기반 공고/채팅 분석 + Gemini 자연어 생성"
 - 텍스트 직접 입력 추론 API(/v1/infer)는 이 MVP에서는 제공하지 않습니다.
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
+import asyncio
 import logging
 import os
 
 from app.env import load_dotenv_once
+from app.mq.consumer import start_consumer
 from app.routes.analyze import router as analyze_router
 from app.routes.wage_warning import router as wage_warning_router
 
@@ -34,7 +37,19 @@ def _configure_logging() -> None:
 load_dotenv_once()
 _configure_logging()
 
-app = FastAPI(title="Samak AI - Image Analyze MVP", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    consumer_task = asyncio.create_task(start_consumer())
+    yield
+    consumer_task.cancel()
+    try:
+        await consumer_task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(title="Samak AI - Image Analyze MVP", version="0.1.0", lifespan=lifespan)
 app.include_router(analyze_router)
 app.include_router(wage_warning_router)
 

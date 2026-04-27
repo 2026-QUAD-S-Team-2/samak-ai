@@ -88,6 +88,7 @@ async def _run_analysis(
                 "riskLevel": None,
                 "thresholdUsed": None,
             },
+            "travelBanRegionsMatched": [],
             "explanation": {
                 "riskSignals": [],
                 "note": "Signals are matched against predefined scam-pattern rules.",
@@ -189,6 +190,7 @@ async def _run_analysis(
     resp = {
         "analysisId": analysis_id,
         "type": analysis_type,
+        "travelBanRegionsMatched": risk_regions,
         "ocr": {
             "textPreview": ocr.text_preview,
             "textLength": ocr.text_length,

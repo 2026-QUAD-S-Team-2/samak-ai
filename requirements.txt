@@ -91,3 +91,4 @@ wsproto==1.3.2
 zipp==3.23.0
 easyocr
 opencv-python
+aio-pika>=9.4
