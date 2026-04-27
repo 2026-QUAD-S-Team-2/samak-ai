@@ -18,7 +18,7 @@ services:
 
   samak-ai:
     build: .
-    container_name: samak-ai
+    container_name: app
     ports:
       - "8000:8000"
     env_file:
