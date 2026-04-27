@@ -18,7 +18,7 @@ from app.mq.mq_config import (
 )
 from app.mq.producer import publish_result
 from app.mq.schemas import AnalysisRequestMessage, AnalysisResultMessage
-from app.routes.analyze import _run_analysis
+from app.routes.analyze import _download_image_bytes, _run_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +35,28 @@ async def _process_message(
             len(req.imageUrls),
         )
 
-        tasks = [
-            _run_analysis(None, url, {}, req.debug)
-            for url in req.imageUrls
-        ]
-        if len(tasks) >= 5:
-            raw_results = list(await asyncio.gather(*tasks))
-        else:
-            raw_results = [await t for t in tasks]
+        async def _fetch_and_analyze(url: str) -> dict:
+            from fastapi import HTTPException
+            from uuid import uuid4
+            try:
+                bts = await _download_image_bytes(url)
+            except HTTPException as e:
+                logger.error("이미지 다운로드 실패: url=%s detail=%s", url, e.detail)
+                return {
+                    "analysisId": str(uuid4()),
+                    "mlPrediction": {"fraudProbability": None, "riskScore": None, "riskLevel": None, "modelVersion": "fraud-baseline-v1.0.0", "thresholdUsed": None},
+                    "explanation": {"riskSignals": []},
+                    "travelBanRegionsMatched": [],
+                    "analysisSummary": {"score": None, "label": None, "message": str(e.detail)},
+                }
+            return await _run_analysis(bts, {}, req.debug)
 
-        # riskScore 최고값 결과를 대표값으로 선택
+        if len(req.imageUrls) >= 5:
+            raw_results = list(await asyncio.gather(*[_fetch_and_analyze(u) for u in req.imageUrls]))
+        else:
+            raw_results = [await _fetch_and_analyze(u) for u in req.imageUrls]
+
+        # riskScore 최고값 결과를 대표값으로 선택 (None은 0으로 취급)
         best = max(raw_results, key=lambda r: r["mlPrediction"]["riskScore"] or 0)
 
         result = AnalysisResultMessage(

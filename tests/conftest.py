@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -18,4 +19,17 @@ def _stable_test_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENABLE_GEMINI", "false")
     monkeypatch.delenv("MAPS_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _mock_consumer(monkeypatch: pytest.MonkeyPatch):
+    """테스트 중 RabbitMQ 연결 시도 방지 — aio_pika 재연결 루프가 취소를 지연시킴."""
+    async def _noop() -> None:
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            pass
+
+    monkeypatch.setattr("app.main.start_consumer", _noop)
     yield
