@@ -4,8 +4,8 @@ from __future__ import annotations
 Gemini 서비스.
 
 기능:
-1. analyze_with_gemini: 경계 구간 케이스에서 Gemini가 직접 사기 여부를 심층 판단 (ML + LLM 앙상블)
-2. polish_with_gemini: 템플릿 문장을 자연스럽게 다듬기 (ML 단독 판단 케이스에서 사용)
+1. analyze_image_with_gemini_vision: 이미지를 Gemini Vision으로 직접 분석 (멀티모달, 모든 요청에서 실행)
+2. polish_with_gemini: 템플릿 문장을 자연스럽게 다듬기
 """
 
 import json
@@ -70,7 +70,7 @@ def _build_prompt(
 
 
 @dataclass(frozen=True)
-class GeminiAnalysisResult:
+class GeminiVisionResult:
     fraud_probability: float
     risk_signals: list[str]
     reasoning: str
@@ -78,18 +78,30 @@ class GeminiAnalysisResult:
     error: str | None
 
 
-def _build_analysis_prompt(
-    *,
-    ocr_text: str,
-    ml_probability: float,
-    ml_risk_signals: list[str],
-) -> str:
-    signals_str = ", ".join(ml_risk_signals) if ml_risk_signals else "(없음)"
+def _detect_mime_type(data: bytes) -> str:
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:4] == b"\x89PNG":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/jpeg"
+
+
+def _build_vision_prompt() -> str:
     return (
-        "당신은 채용 사기 탐지 전문가입니다. 아래 채용 공고 텍스트를 분석하고 "
-        "정확히 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.\n\n"
-        f"[ML 1차 판단]\n사기 확률: {ml_probability:.1%}\n탐지된 패턴: {signals_str}\n\n"
-        f"[채용 공고 텍스트]\n{ocr_text[:3000]}\n\n"
+        "당신은 채용 사기 탐지 전문가입니다. 첨부된 이미지는 채용 공고 또는 채팅 캡처본입니다.\n"
+        "이미지를 보고 아래 기준으로 사기 여부를 판단하여 정확히 JSON 형식으로만 응답하세요.\n"
+        "다른 텍스트나 마크다운 코드블록은 절대 포함하지 마세요.\n\n"
+        "[분석 기준]\n"
+        "- 비정상적으로 높은 급여 약속\n"
+        "- 선입금/보증금/장비 구매 요구\n"
+        "- 개인정보 즉시 요구 (계좌번호, 주민번호 등)\n"
+        "- 회사 정보 불명확 (이름/주소/연락처 없음)\n"
+        "- 문법 오류, 번역 투 문체\n"
+        "- 여행금지 국가·지역 파견 근무 제안\n"
+        "- 카카오톡/텔레그램 등 비공식 채널 연락 요구\n"
+        "- 레이아웃이 조잡하거나 로고가 위조처럼 보임\n\n"
         "응답 형식 (JSON만, 마크다운 코드블록 없이):\n"
         "{\n"
         '  "fraud_probability": <0.0~1.0 사이 소수>,\n'
@@ -99,46 +111,32 @@ def _build_analysis_prompt(
     )
 
 
-def analyze_with_gemini(
-    *,
-    ocr_text: str,
-    ml_probability: float,
-    ml_risk_signals: list[str] | None = None,
-) -> GeminiAnalysisResult:
-    """경계 구간(20%~80%) 케이스에 대해 Gemini가 ML 판단을 검토하고 최종 확률을 제시합니다."""
+def analyze_image_with_gemini_vision(image_bytes: bytes) -> GeminiVisionResult:
+    """이미지 bytes를 Gemini Vision으로 직접 분석하여 사기 확률을 반환합니다."""
     load_dotenv_once()
     api_key = os.environ.get("GEMINI_API_KEY") or ""
     model = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
 
-    if api_key.strip() == "":
-        return GeminiAnalysisResult(
-            fraud_probability=ml_probability,
-            risk_signals=list(ml_risk_signals or []),
-            reasoning="",
-            used_gemini=False,
-            error="GEMINI_API_KEY not set",
-        )
+    if not api_key.strip():
+        return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=False, error="GEMINI_API_KEY not set")
+    if not image_bytes:
+        return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=False, error="image_bytes is empty")
+    if len(image_bytes) > 20 * 1024 * 1024:
+        return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=False, error="이미지 크기 20MB 초과")
 
-    prompt = _build_analysis_prompt(
-        ocr_text=ocr_text,
-        ml_probability=ml_probability,
-        ml_risk_signals=list(ml_risk_signals or []),
-    )
+    mime_type = _detect_mime_type(image_bytes)
+    prompt_text = _build_vision_prompt()
 
     try:
         from google import genai  # type: ignore
+        from google.genai import types  # type: ignore
 
         client = genai.Client(api_key=api_key)
-        resp = client.models.generate_content(model=model, contents=prompt)
+        image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+        resp = client.models.generate_content(model=model, contents=[prompt_text, image_part])
         text = getattr(resp, "text", None)
         if not text:
-            return GeminiAnalysisResult(
-                fraud_probability=ml_probability,
-                risk_signals=list(ml_risk_signals or []),
-                reasoning="",
-                used_gemini=True,
-                error="Gemini returned empty text",
-            )
+            return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=True, error="Gemini Vision returned empty text")
 
         clean = text.strip()
         if clean.startswith("```"):
@@ -146,26 +144,13 @@ def analyze_with_gemini(
             clean = re.sub(r"\n?```$", "", clean)
 
         data = json.loads(clean)
-        fraud_prob = float(data.get("fraud_probability", ml_probability))
-        fraud_prob = max(0.0, min(1.0, fraud_prob))
+        fraud_prob = max(0.0, min(1.0, float(data.get("fraud_probability", 0.5))))
         signals = [str(s) for s in data.get("risk_signals", [])][:5]
         reasoning = str(data.get("reasoning", "")).strip()
 
-        return GeminiAnalysisResult(
-            fraud_probability=fraud_prob,
-            risk_signals=signals,
-            reasoning=reasoning,
-            used_gemini=True,
-            error=None,
-        )
+        return GeminiVisionResult(fraud_probability=fraud_prob, risk_signals=signals, reasoning=reasoning, used_gemini=True, error=None)
     except Exception as e:  # noqa: BLE001
-        return GeminiAnalysisResult(
-            fraud_probability=ml_probability,
-            risk_signals=list(ml_risk_signals or []),
-            reasoning="",
-            used_gemini=True,
-            error=str(e),
-        )
+        return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=True, error=str(e))
 
 
 def polish_with_gemini(

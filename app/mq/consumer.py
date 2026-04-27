@@ -18,7 +18,7 @@ from app.mq.mq_config import (
 )
 from app.mq.producer import publish_result
 from app.mq.schemas import AnalysisRequestMessage, AnalysisResultMessage
-from app.routes.analyze import _run_analysis
+from app.routes.analyze import _download_image_bytes, _run_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +35,8 @@ async def _process_message(
             len(req.imageUrls),
         )
 
-        tasks = [
-            _run_analysis(None, url, {}, req.debug)
-            for url in req.imageUrls
-        ]
-        if len(tasks) >= 5:
-            raw_results = list(await asyncio.gather(*tasks))
-        else:
-            raw_results = [await t for t in tasks]
+        bytes_list = await asyncio.gather(*[_download_image_bytes(url) for url in req.imageUrls])
+        raw_results = list(await asyncio.gather(*[_run_analysis(b, {}, req.debug) for b in bytes_list]))
 
         # riskScore 최고값 결과를 대표값으로 선택
         best = max(raw_results, key=lambda r: r["mlPrediction"]["riskScore"] or 0)
