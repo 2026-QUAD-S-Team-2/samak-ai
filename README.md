@@ -214,6 +214,11 @@ countryCode   : KR
 | `GEMINI_API_KEY` | (없음) | Google Gemini API 키. 없으면 ML + 템플릿으로만 동작 |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | 사용할 Gemini 모델 |
 | `LOG_LEVEL` | `INFO` | Python 로깅 레벨 |
+| `RABBITMQ_USERNAME` | `guest` | RabbitMQ 접속 계정 |
+| `RABBITMQ_PASSWORD` | `guest` | RabbitMQ 접속 비밀번호 |
+| `RABBITMQ_URL` | `amqp://guest:guest@localhost:5672/` | RabbitMQ 연결 URL (Docker Compose 사용 시 자동 주입) |
+| `RABBITMQ_PREFETCH` | `1` | 동시에 처리할 최대 메시지 수 |
+| `RABBITMQ_RECONNECT_DELAY` | `5` | 연결 끊김 후 재연결 대기 시간(초) |
 
 `.env.example`을 복사해 `.env`로 사용하세요.
 
@@ -221,76 +226,76 @@ countryCode   : KR
 
 ## 실행 방법
 
-### 로컬 실행
+### 구성 개요
+
+동일한 EC2 인스턴스에서 **RabbitMQ**와 **AI 서버** 두 컨테이너를 함께 띄웁니다.
+
+```
+EC2 인스턴스
+├── rabbitmq 컨테이너  (포트 5672, 15672)
+└── samak-ai 컨테이너  (포트 8000)
+    └── 시작 시 rabbitmq:5672 로 자동 연결
+```
+
+Spring Boot 백엔드는 같은 EC2에서 `localhost:5672` 로 RabbitMQ에 접속합니다.
+
+---
+
+### 1. 환경 변수 설정
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-
 cp .env.example .env
-# .env 파일에 GEMINI_API_KEY=your_key_here 입력
-
-uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-### Docker 실행
+`.env`에 아래 항목을 채워 넣습니다:
 
 ```bash
-docker build -t samak-ai .
-docker run --rm -p 8000:8000 \
-  -e GEMINI_API_KEY=your_key_here \
-  -e MODEL_DIR=/app/models/fraud-baseline \
-  samak-ai
-```
+GEMINI_API_KEY=your_gemini_api_key
 
-### 동작 확인
-
-```bash
-# 헬스 체크
-curl http://localhost:8000/healthz
-
-# 분석 요청
-curl -sS http://localhost:8000/v1/analyze/image \
-  -H 'content-type: application/json' \
-  -d '{"imageUrl":"https://example.com/sample.png","meta":{"countryCode":"KR"}}'
-
-# 로컬 파일 테스트 (서버 없이)
-python scripts/local_test.py --file ./scripts/sample.png
+RABBITMQ_USERNAME=your_username
+RABBITMQ_PASSWORD=your_password
 ```
 
 ---
 
-## 모델 학습
-
-학습 데이터는 `training/data/` 아래에 CSV 파일로 준비합니다.
+### 2. 서버 실행
 
 ```bash
-# 1. 전처리 (train/test split 포함)
-python training/preprocess.py
-
-# 2. 학습
-python training/train_baseline.py train \
-  --train-path training/data/processed/train.csv \
-  --out-dir training/runs/tfidf_lr
-
-# 3. 평가 및 threshold 최적화
-python training/evaluate_baseline.py \
-  --model-dir training/runs/tfidf_lr \
-  --train-path training/data/processed/train.csv \
-  --test-path training/data/processed/test.csv \
-  --tune
-
-# 4. 서빙 디렉토리로 export (원자적 교체)
-python training/train_baseline.py export \
-  --model-dir training/runs/tfidf_lr \
-  --export-dir models/fraud-baseline
+docker compose up -d --build
 ```
 
-모델 파일 구조:
+내부 실행 순서:
+1. `rabbitmq` 컨테이너 시작 → `rabbitmq-diagnostics ping` 헬스체크 통과 대기 (최대 50초)
+2. `samak-ai` 이미지 빌드 후 컨테이너 시작 → consumer가 `rabbitmq:5672`로 자동 연결
+
+---
+
+### 3. 동작 확인
+
+```bash
+# 컨테이너 상태 확인
+docker compose ps
+
+# AI 서버 헬스 체크
+curl http://localhost:8000/healthz
+
+# AI 서버 로그 확인 (RabbitMQ 연결 메시지 확인)
+docker compose logs samak-ai
+
+# RabbitMQ Management UI (Exchange/Queue 선언 확인)
+# http://<EC2_PUBLIC_IP>:15672
 ```
-models/fraud-baseline/
-├── vectorizer.joblib   # TF-IDF 벡터라이저
-├── model.joblib        # Logistic Regression 모델
-└── metadata.json       # threshold, version 정보
+
+---
+
+### 4. 서버 중지
+
+```bash
+docker compose down
+```
+
+RabbitMQ 데이터(메시지 큐)까지 초기화하려면:
+
+```bash
+docker compose down -v
 ```
