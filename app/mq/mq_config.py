@@ -13,5 +13,9 @@ RABBITMQ_RESULT_QUEUE  = os.environ.get("RABBITMQ_RESULT_QUEUE",  "analysis-resu
 RABBITMQ_REQUEST_ROUTING_KEY = os.environ.get("RABBITMQ_REQUEST_ROUTING_KEY", "analysis-request-routing-key")
 RABBITMQ_RESULT_ROUTING_KEY  = os.environ.get("RABBITMQ_RESULT_ROUTING_KEY",  "analysis-result-routing-key")
 
+RABBITMQ_DLQ_EXCHANGE    = os.environ.get("RABBITMQ_DLQ_EXCHANGE",    "analysis-dlq-exchange")
+RABBITMQ_DLQ_QUEUE       = os.environ.get("RABBITMQ_DLQ_QUEUE",       "analysis-dlq-queue")
+RABBITMQ_DLQ_ROUTING_KEY = os.environ.get("RABBITMQ_DLQ_ROUTING_KEY", "analysis-dlq-routing-key")
+
 RABBITMQ_PREFETCH        = int(os.environ.get("RABBITMQ_PREFETCH", "1"))
 RABBITMQ_RECONNECT_DELAY = int(os.environ.get("RABBITMQ_RECONNECT_DELAY", "5"))

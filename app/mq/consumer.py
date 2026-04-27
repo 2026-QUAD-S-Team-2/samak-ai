@@ -6,6 +6,9 @@ import logging
 import aio_pika
 
 from app.mq.mq_config import (
+    RABBITMQ_DLQ_EXCHANGE,
+    RABBITMQ_DLQ_QUEUE,
+    RABBITMQ_DLQ_ROUTING_KEY,
     RABBITMQ_PREFETCH,
     RABBITMQ_RECONNECT_DELAY,
     RABBITMQ_REQUEST_EXCHANGE,
@@ -91,18 +94,51 @@ async def start_consumer() -> None:
                     aio_pika.ExchangeType.DIRECT,
                     durable=True,
                 )
+                dlq_exchange = await channel.declare_exchange(
+                    RABBITMQ_DLQ_EXCHANGE,
+                    aio_pika.ExchangeType.DIRECT,
+                    durable=True,
+                )
 
-                req_queue = await channel.declare_queue(RABBITMQ_REQUEST_QUEUE, durable=True)
+                # DLQ 큐 선언 (처리 실패 메시지 보관)
+                dlq_queue = await channel.declare_queue(RABBITMQ_DLQ_QUEUE, durable=True)
+                await dlq_queue.bind(dlq_exchange, routing_key=RABBITMQ_DLQ_ROUTING_KEY)
+
+                # 요청 큐: 처리 실패 시 DLQ로 라우팅
+                req_queue = await channel.declare_queue(
+                    RABBITMQ_REQUEST_QUEUE,
+                    durable=True,
+                    arguments={
+                        "x-dead-letter-exchange": RABBITMQ_DLQ_EXCHANGE,
+                        "x-dead-letter-routing-key": RABBITMQ_DLQ_ROUTING_KEY,
+                    },
+                )
                 await req_queue.bind(req_exchange, routing_key=RABBITMQ_REQUEST_ROUTING_KEY)
 
                 res_queue = await channel.declare_queue(RABBITMQ_RESULT_QUEUE, durable=True)
                 await res_queue.bind(res_exchange, routing_key=RABBITMQ_RESULT_ROUTING_KEY)
 
+                async def on_dlq_message(msg: aio_pika.abc.AbstractIncomingMessage) -> None:
+                    async with msg.process(requeue=False):
+                        body_preview = msg.body[:300].decode("utf-8", errors="replace")
+                        logger.error(
+                            "DLQ 메시지 수신 — 처리에 실패한 요청입니다. "
+                            "routing_key=%s headers=%s body=%s",
+                            msg.routing_key,
+                            msg.headers,
+                            body_preview,
+                        )
+
                 async def on_message(msg: aio_pika.abc.AbstractIncomingMessage) -> None:
                     await _process_message(msg, res_exchange)
 
+                await dlq_queue.consume(on_dlq_message)
                 await req_queue.consume(on_message)
-                logger.info("분석 요청 큐 소비 시작: %s", RABBITMQ_REQUEST_QUEUE)
+                logger.info(
+                    "분석 요청 큐 소비 시작: %s (DLQ: %s)",
+                    RABBITMQ_REQUEST_QUEUE,
+                    RABBITMQ_DLQ_QUEUE,
+                )
 
                 await asyncio.Future()  # 연결 유지
 
