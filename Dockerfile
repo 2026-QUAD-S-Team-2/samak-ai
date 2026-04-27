@@ -8,6 +8,7 @@ WORKDIR /app
 COPY pyproject.toml requirements.txt README.md /app/
 COPY app /app/app
 COPY models /app/models
+COPY resources /app/resources
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
     && pip install --no-cache-dir -r requirements.txt \
