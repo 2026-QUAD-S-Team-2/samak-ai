@@ -11,6 +11,7 @@ COPY models /app/models
 COPY resources /app/resources
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir .
 
