@@ -24,7 +24,7 @@ def _stable_test_env(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture(autouse=True)
 def _mock_consumer(monkeypatch: pytest.MonkeyPatch):
-    """테스트 중 RabbitMQ 연결 시도 방지 — aio_pika 재연결 루프가 취소를 지연시킴."""
+    """테스트 중 Pub/Sub 연결 시도 방지 — 스트리밍 풀 루프가 취소를 지연시킴."""
     async def _noop() -> None:
         try:
             await asyncio.Future()

@@ -2,20 +2,20 @@ from __future__ import annotations
 
 import os
 
-RABBITMQ_URL = os.environ.get("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "")
 
-RABBITMQ_REQUEST_EXCHANGE = os.environ.get("RABBITMQ_REQUEST_EXCHANGE", "analysis-request-exchange")
-RABBITMQ_RESULT_EXCHANGE  = os.environ.get("RABBITMQ_RESULT_EXCHANGE",  "analysis-result-exchange")
+PUBSUB_REQUEST_SUBSCRIPTION  = os.environ.get("PUBSUB_REQUEST_SUBSCRIPTION",  "analysis-request-subscription")
+PUBSUB_RESULT_TOPIC          = os.environ.get("PUBSUB_RESULT_TOPIC",          "analysis-result-topic")
+PUBSUB_DLQ_SUBSCRIPTION      = os.environ.get("PUBSUB_DLQ_SUBSCRIPTION",      "analysis-request-dead-letter-subscription")
 
-RABBITMQ_REQUEST_QUEUE = os.environ.get("RABBITMQ_REQUEST_QUEUE", "analysis-request-queue")
-RABBITMQ_RESULT_QUEUE  = os.environ.get("RABBITMQ_RESULT_QUEUE",  "analysis-result-queue")
+PUBSUB_RECONNECT_DELAY = int(os.environ.get("PUBSUB_RECONNECT_DELAY", "5"))
 
-RABBITMQ_REQUEST_ROUTING_KEY = os.environ.get("RABBITMQ_REQUEST_ROUTING_KEY", "analysis-request-routing-key")
-RABBITMQ_RESULT_ROUTING_KEY  = os.environ.get("RABBITMQ_RESULT_ROUTING_KEY",  "analysis-result-routing-key")
-
-RABBITMQ_DLQ_EXCHANGE    = os.environ.get("RABBITMQ_DLQ_EXCHANGE",    "analysis-dlq-exchange")
-RABBITMQ_DLQ_QUEUE       = os.environ.get("RABBITMQ_DLQ_QUEUE",       "analysis-dlq-queue")
-RABBITMQ_DLQ_ROUTING_KEY = os.environ.get("RABBITMQ_DLQ_ROUTING_KEY", "analysis-dlq-routing-key")
-
-RABBITMQ_PREFETCH        = int(os.environ.get("RABBITMQ_PREFETCH", "1"))
-RABBITMQ_RECONNECT_DELAY = int(os.environ.get("RABBITMQ_RECONNECT_DELAY", "5"))
+PUBSUB_REQUEST_SUBSCRIPTION_PATH = (
+    f"projects/{GCP_PROJECT_ID}/subscriptions/{PUBSUB_REQUEST_SUBSCRIPTION}"
+)
+PUBSUB_RESULT_TOPIC_PATH = (
+    f"projects/{GCP_PROJECT_ID}/topics/{PUBSUB_RESULT_TOPIC}"
+)
+PUBSUB_DLQ_SUBSCRIPTION_PATH = (
+    f"projects/{GCP_PROJECT_ID}/subscriptions/{PUBSUB_DLQ_SUBSCRIPTION}"
+)

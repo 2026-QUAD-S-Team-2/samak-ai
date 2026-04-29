@@ -3,21 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 
-import aio_pika
+from google.cloud import pubsub_v1
 
 from app.mq.mq_config import (
-    RABBITMQ_DLQ_EXCHANGE,
-    RABBITMQ_DLQ_QUEUE,
-    RABBITMQ_DLQ_ROUTING_KEY,
-    RABBITMQ_PREFETCH,
-    RABBITMQ_RECONNECT_DELAY,
-    RABBITMQ_REQUEST_EXCHANGE,
-    RABBITMQ_REQUEST_QUEUE,
-    RABBITMQ_REQUEST_ROUTING_KEY,
-    RABBITMQ_RESULT_EXCHANGE,
-    RABBITMQ_RESULT_QUEUE,
-    RABBITMQ_RESULT_ROUTING_KEY,
-    RABBITMQ_URL,
+    PUBSUB_DLQ_SUBSCRIPTION_PATH,
+    PUBSUB_RECONNECT_DELAY,
+    PUBSUB_REQUEST_SUBSCRIPTION_PATH,
 )
 from app.mq.producer import publish_result
 from app.mq.schemas import AnalysisRequestMessage, AnalysisResultMessage
@@ -26,12 +17,10 @@ from app.routes.analyze import _download_image_bytes, _run_analysis
 logger = logging.getLogger(__name__)
 
 
-async def _process_message(
-    message: aio_pika.abc.AbstractIncomingMessage,
-    result_exchange: aio_pika.abc.AbstractExchange,
-) -> None:
-    async with message.process(requeue=False):
-        req = AnalysisRequestMessage.model_validate_json(message.body)
+async def _process_message(message: pubsub_v1.subscriber.message.Message) -> None:
+    req: AnalysisRequestMessage | None = None
+    try:
+        req = AnalysisRequestMessage.model_validate_json(message.data.decode())
         logger.info(
             "분석 요청 수신: analysisItemId=%d, 이미지 %d장",
             req.analysisItemId,
@@ -59,7 +48,6 @@ async def _process_message(
         else:
             raw_results = [await _fetch_and_analyze(u) for u in req.imageUrls]
 
-        # riskScore 최고값 결과를 대표값으로 선택 (None은 0으로 취급)
         best = max(raw_results, key=lambda r: r["mlPrediction"]["riskScore"] or 0)
 
         result = AnalysisResultMessage(
@@ -71,84 +59,94 @@ async def _process_message(
             travelBanRegionsMatched=best.get("travelBanRegionsMatched", []),
             message=best["analysisSummary"]["message"],
         )
-        await publish_result(result_exchange, result)
+        await publish_result(result)
+        message.ack()
+
+    except Exception as e:
+        logger.error(
+            "분석 처리 실패: analysisItemId=%s error=%s",
+            req.analysisItemId if req else "?",
+            e,
+        )
+        message.nack()
 
 
 async def start_consumer() -> None:
+    loop = asyncio.get_running_loop()
+    flow_control = pubsub_v1.types.FlowControl(max_messages=1)
+
+    def _make_callback(event_loop: asyncio.AbstractEventLoop):
+        def callback(message: pubsub_v1.subscriber.message.Message) -> None:
+            future = asyncio.run_coroutine_threadsafe(_process_message(message), event_loop)
+            try:
+                future.result(timeout=300)
+            except TimeoutError:
+                logger.error("메시지 처리 타임아웃 (300s 초과)")
+                message.nack()
+            except Exception as e:
+                logger.error("콜백 오류: %s", e)
+                message.nack()
+        return callback
+
+    def _make_dlq_callback(event_loop: asyncio.AbstractEventLoop):
+        async def _log_dlq(message: pubsub_v1.subscriber.message.Message) -> None:
+            body_preview = message.data[:300].decode("utf-8", errors="replace")
+            logger.error(
+                "ERROR DLQ 메시지 수신 — 처리에 실패한 요청입니다. "
+                "attributes=%s body=%s",
+                dict(message.attributes),
+                body_preview,
+            )
+            message.ack()
+
+        def callback(message: pubsub_v1.subscriber.message.Message) -> None:
+            future = asyncio.run_coroutine_threadsafe(_log_dlq(message), event_loop)
+            try:
+                future.result(timeout=30)
+            except Exception as e:
+                logger.error("DLQ 콜백 오류: %s", e)
+                message.nack()
+        return callback
+
     while True:
+        subscriber = pubsub_v1.SubscriberClient()
+        dlq_future = None
+        req_future = None
         try:
-            connection = await aio_pika.connect_robust(RABBITMQ_URL)
-            logger.info("RabbitMQ 연결 성공: %s", RABBITMQ_URL)
-
-            async with connection:
-                channel = await connection.channel()
-                await channel.set_qos(prefetch_count=RABBITMQ_PREFETCH)
-
-                req_exchange = await channel.declare_exchange(
-                    RABBITMQ_REQUEST_EXCHANGE,
-                    aio_pika.ExchangeType.DIRECT,
-                    durable=True,
-                )
-                res_exchange = await channel.declare_exchange(
-                    RABBITMQ_RESULT_EXCHANGE,
-                    aio_pika.ExchangeType.DIRECT,
-                    durable=True,
-                )
-                dlq_exchange = await channel.declare_exchange(
-                    RABBITMQ_DLQ_EXCHANGE,
-                    aio_pika.ExchangeType.DIRECT,
-                    durable=True,
-                )
-
-                # DLQ 큐 선언 (처리 실패 메시지 보관)
-                dlq_queue = await channel.declare_queue(RABBITMQ_DLQ_QUEUE, durable=True)
-                await dlq_queue.bind(dlq_exchange, routing_key=RABBITMQ_DLQ_ROUTING_KEY)
-
-                # 요청 큐: 처리 실패 시 DLQ로 라우팅
-                req_queue = await channel.declare_queue(
-                    RABBITMQ_REQUEST_QUEUE,
-                    durable=True,
-                    arguments={
-                        "x-dead-letter-exchange": RABBITMQ_DLQ_EXCHANGE,
-                        "x-dead-letter-routing-key": RABBITMQ_DLQ_ROUTING_KEY,
-                    },
-                )
-                await req_queue.bind(req_exchange, routing_key=RABBITMQ_REQUEST_ROUTING_KEY)
-
-                res_queue = await channel.declare_queue(RABBITMQ_RESULT_QUEUE, durable=True)
-                await res_queue.bind(res_exchange, routing_key=RABBITMQ_RESULT_ROUTING_KEY)
-
-                async def on_dlq_message(msg: aio_pika.abc.AbstractIncomingMessage) -> None:
-                    async with msg.process(requeue=False):
-                        body_preview = msg.body[:300].decode("utf-8", errors="replace")
-                        logger.error(
-                            "DLQ 메시지 수신 — 처리에 실패한 요청입니다. "
-                            "routing_key=%s headers=%s body=%s",
-                            msg.routing_key,
-                            msg.headers,
-                            body_preview,
-                        )
-
-                async def on_message(msg: aio_pika.abc.AbstractIncomingMessage) -> None:
-                    await _process_message(msg, res_exchange)
-
-                await dlq_queue.consume(on_dlq_message)
-                await req_queue.consume(on_message)
-                logger.info(
-                    "분석 요청 큐 소비 시작: %s (DLQ: %s)",
-                    RABBITMQ_REQUEST_QUEUE,
-                    RABBITMQ_DLQ_QUEUE,
-                )
-
-                await asyncio.Future()  # 연결 유지
+            dlq_future = subscriber.subscribe(
+                PUBSUB_DLQ_SUBSCRIPTION_PATH,
+                callback=_make_dlq_callback(loop),
+            )
+            req_future = subscriber.subscribe(
+                PUBSUB_REQUEST_SUBSCRIPTION_PATH,
+                callback=_make_callback(loop),
+                flow_control=flow_control,
+            )
+            logger.info(
+                "Pub/Sub 구독 시작: %s (DLQ: %s)",
+                PUBSUB_REQUEST_SUBSCRIPTION_PATH,
+                PUBSUB_DLQ_SUBSCRIPTION_PATH,
+            )
+            # 요청 스트림이 종료되거나 오류가 날 때까지 대기
+            await loop.run_in_executor(None, req_future.result)
 
         except asyncio.CancelledError:
-            logger.info("RabbitMQ consumer 종료")
+            if req_future:
+                req_future.cancel()
+            if dlq_future:
+                dlq_future.cancel()
+            subscriber.close()
+            logger.info("Pub/Sub consumer 종료")
             raise
         except Exception as e:
             logger.error(
-                "RabbitMQ 연결 오류: %s — %d초 후 재연결 시도",
+                "Pub/Sub 연결 오류: %s — %d초 후 재연결 시도",
                 e,
-                RABBITMQ_RECONNECT_DELAY,
+                PUBSUB_RECONNECT_DELAY,
             )
-            await asyncio.sleep(RABBITMQ_RECONNECT_DELAY)
+            if req_future:
+                req_future.cancel()
+            if dlq_future:
+                dlq_future.cancel()
+            subscriber.close()
+            await asyncio.sleep(PUBSUB_RECONNECT_DELAY)

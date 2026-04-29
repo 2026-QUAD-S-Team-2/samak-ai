@@ -67,8 +67,8 @@ def healthz() -> dict:
     min_wage_p = Path(min_wage_env) if Path(min_wage_env).is_absolute() else Path(__file__).resolve().parent.parent / min_wage_env
     checks["minWageData"] = "ok" if min_wage_p.exists() else "missing"
 
-    from app.mq.mq_config import RABBITMQ_URL
-    checks["rabbitmq"] = "configured" if RABBITMQ_URL else "not_configured"
+    from app.mq.mq_config import GCP_PROJECT_ID
+    checks["pubsub"] = "configured" if GCP_PROJECT_ID else "not_configured"
 
     status = "ok" if all(v in ("ok", "configured") for v in checks.values()) else "degraded"
     return {"status": status, "checks": checks}

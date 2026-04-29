@@ -26,10 +26,8 @@ trio==0.32.0
 trio-typing==0.10.0
 trio-websocket==0.12.2
 
-# RabbitMQ
-aio-pika>=9.4
-aiormq==6.8.1
-pamqp==3.3.0
+# Google Cloud Pub/Sub
+google-cloud-pubsub>=2.21.0
 
 # HTTP
 httpx==0.28.1
