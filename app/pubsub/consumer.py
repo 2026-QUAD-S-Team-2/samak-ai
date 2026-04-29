@@ -5,13 +5,13 @@ import logging
 
 from google.cloud import pubsub_v1
 
-from app.mq.mq_config import (
+from app.pubsub.pubsub_config import (
     PUBSUB_DLQ_SUBSCRIPTION_PATH,
     PUBSUB_RECONNECT_DELAY,
     PUBSUB_REQUEST_SUBSCRIPTION_PATH,
 )
-from app.mq.producer import publish_result
-from app.mq.schemas import AnalysisRequestMessage, AnalysisResultMessage
+from app.pubsub.producer import publish_result
+from app.pubsub.schemas import AnalysisRequestMessage, AnalysisResultMessage
 from app.routes.analyze import _download_image_bytes, _run_analysis
 
 logger = logging.getLogger(__name__)
@@ -127,7 +127,6 @@ async def start_consumer() -> None:
                 PUBSUB_REQUEST_SUBSCRIPTION_PATH,
                 PUBSUB_DLQ_SUBSCRIPTION_PATH,
             )
-            # 요청 스트림이 종료되거나 오류가 날 때까지 대기
             await loop.run_in_executor(None, req_future.result)
 
         except asyncio.CancelledError:

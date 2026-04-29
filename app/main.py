@@ -21,7 +21,7 @@ import logging
 import os
 
 from app.env import load_dotenv_once
-from app.mq.consumer import start_consumer
+from app.pubsub.consumer import start_consumer
 from app.routes.analyze import router as analyze_router, _init_model
 from app.routes.wage_warning import router as wage_warning_router
 
@@ -67,7 +67,7 @@ def healthz() -> dict:
     min_wage_p = Path(min_wage_env) if Path(min_wage_env).is_absolute() else Path(__file__).resolve().parent.parent / min_wage_env
     checks["minWageData"] = "ok" if min_wage_p.exists() else "missing"
 
-    from app.mq.mq_config import GCP_PROJECT_ID
+    from app.pubsub.pubsub_config import GCP_PROJECT_ID
     checks["pubsub"] = "configured" if GCP_PROJECT_ID else "not_configured"
 
     status = "ok" if all(v in ("ok", "configured") for v in checks.values()) else "degraded"

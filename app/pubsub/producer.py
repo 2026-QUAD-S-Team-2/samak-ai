@@ -5,8 +5,8 @@ import logging
 
 from google.cloud import pubsub_v1
 
-from app.mq.mq_config import PUBSUB_RESULT_TOPIC_PATH
-from app.mq.schemas import AnalysisResultMessage
+from app.pubsub.pubsub_config import PUBSUB_RESULT_TOPIC_PATH
+from app.pubsub.schemas import AnalysisResultMessage
 
 logger = logging.getLogger(__name__)
 
