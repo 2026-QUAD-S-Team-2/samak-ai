@@ -173,11 +173,13 @@ async def _run_analysis(
             resp["debug"] = {"modelError": str(e)}
         return resp
 
+    fraud_prob_ml = float(fraud_prob)  # ML 단독 예측값 (debug용)
+
     # Vision 앙상블: ML 40% + Gemini Vision 60%
     used_vision = False
     vision_error: str | None = None
     if vision_result.used_gemini and not vision_result.error:
-        fraud_prob = 0.4 * float(fraud_prob) + 0.6 * vision_result.fraud_probability
+        fraud_prob = 0.4 * fraud_prob_ml + 0.6 * vision_result.fraud_probability
         if vision_result.risk_signals:
             risk_signals = vision_result.risk_signals
         used_vision = True
@@ -263,6 +265,7 @@ async def _run_analysis(
             "usedGeminiVision": used_vision,
             "visionFraudProbability": vision_result.fraud_probability if used_vision else None,
             "visionError": vision_error,
+            "mlRawFraudProbability": fraud_prob_ml,
             "usedGemini": used_gemini,
             "fallbackToTemplate": fallback_to_template,
             "noChange": no_change,
