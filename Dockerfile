@@ -9,6 +9,7 @@ COPY pyproject.toml requirements.txt README.md /app/
 COPY app /app/app
 COPY models /app/models
 COPY resources /app/resources
+COPY training /app/training
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
     && pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
