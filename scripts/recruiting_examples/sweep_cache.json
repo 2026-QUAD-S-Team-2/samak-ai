@@ -1,0 +1,382 @@
+[
+  {
+    "posting_id": "posting1",
+    "num_images": 1,
+    "ocr_len": 1181,
+    "ml_prob": 0.4209418421478524,
+    "gemini_prob": 0.1,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting2",
+    "num_images": 1,
+    "ocr_len": 807,
+    "ml_prob": 0.8735027982255368,
+    "gemini_prob": 0.95,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting3",
+    "num_images": 1,
+    "ocr_len": 591,
+    "ml_prob": 0.4928783501808282,
+    "gemini_prob": 0.65,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting4",
+    "num_images": 1,
+    "ocr_len": 541,
+    "ml_prob": 0.1537594529889351,
+    "gemini_prob": null,
+    "gemini_ok": false,
+    "gemini_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}",
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting5",
+    "num_images": 1,
+    "ocr_len": 376,
+    "ml_prob": 0.2072838325618228,
+    "gemini_prob": 0.7,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting6",
+    "num_images": 1,
+    "ocr_len": 730,
+    "ml_prob": 0.16145613086375318,
+    "gemini_prob": null,
+    "gemini_ok": false,
+    "gemini_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}",
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting7",
+    "num_images": 1,
+    "ocr_len": 397,
+    "ml_prob": 0.2835030939394688,
+    "gemini_prob": 0.95,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting8",
+    "num_images": 1,
+    "ocr_len": 552,
+    "ml_prob": 0.40636446556980405,
+    "gemini_prob": 0.95,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting9",
+    "num_images": 1,
+    "ocr_len": 617,
+    "ml_prob": 0.3897817657608327,
+    "gemini_prob": 0.95,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting10",
+    "num_images": 1,
+    "ocr_len": 492,
+    "ml_prob": 0.3128275415334967,
+    "gemini_prob": 0.85,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting11",
+    "num_images": 1,
+    "ocr_len": 405,
+    "ml_prob": 0.14479962165829402,
+    "gemini_prob": 0.85,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting12",
+    "num_images": 1,
+    "ocr_len": 346,
+    "ml_prob": 0.2803760843396171,
+    "gemini_prob": 0.6,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting13",
+    "num_images": 1,
+    "ocr_len": 594,
+    "ml_prob": 0.6025646836665871,
+    "gemini_prob": 0.95,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting14",
+    "num_images": 1,
+    "ocr_len": 143,
+    "ml_prob": 0.48246369135898187,
+    "gemini_prob": 0.7,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting15",
+    "num_images": 1,
+    "ocr_len": 819,
+    "ml_prob": 0.33145339853146144,
+    "gemini_prob": 0.95,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting16",
+    "num_images": 1,
+    "ocr_len": 920,
+    "ml_prob": 0.21145003337544307,
+    "gemini_prob": 0.95,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting17",
+    "num_images": 1,
+    "ocr_len": 274,
+    "ml_prob": 0.18770904350289525,
+    "gemini_prob": 0.95,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting18",
+    "num_images": 1,
+    "ocr_len": 406,
+    "ml_prob": 0.1563443506321528,
+    "gemini_prob": 1.0,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting19",
+    "num_images": 1,
+    "ocr_len": 359,
+    "ml_prob": 0.36916898766456735,
+    "gemini_prob": 0.95,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting20",
+    "num_images": 1,
+    "ocr_len": 392,
+    "ml_prob": 0.19007729284266559,
+    "gemini_prob": 0.9,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting21",
+    "num_images": 1,
+    "ocr_len": 1171,
+    "ml_prob": 0.0441797348371334,
+    "gemini_prob": 0.6,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting22",
+    "num_images": 1,
+    "ocr_len": 313,
+    "ml_prob": 0.1624412773639101,
+    "gemini_prob": 0.1,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting23",
+    "num_images": 1,
+    "ocr_len": 1005,
+    "ml_prob": 0.8454947521623704,
+    "gemini_prob": 0.85,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting24",
+    "num_images": 1,
+    "ocr_len": 557,
+    "ml_prob": 0.4283263162709956,
+    "gemini_prob": 0.5,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting25",
+    "num_images": 1,
+    "ocr_len": 287,
+    "ml_prob": 0.23822199599444635,
+    "gemini_prob": 0.75,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting26",
+    "num_images": 1,
+    "ocr_len": 532,
+    "ml_prob": 0.18313937750471587,
+    "gemini_prob": 0.65,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting27",
+    "num_images": 2,
+    "ocr_len": 4556,
+    "ml_prob": 0.019965811141249713,
+    "gemini_prob": 0.05,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting28",
+    "num_images": 3,
+    "ocr_len": 3856,
+    "ml_prob": 0.03162292135653249,
+    "gemini_prob": 0.05,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting29",
+    "num_images": 2,
+    "ocr_len": 2668,
+    "ml_prob": 0.08189871815985032,
+    "gemini_prob": 0.05,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting30",
+    "num_images": 2,
+    "ocr_len": 3018,
+    "ml_prob": 0.013681495521948249,
+    "gemini_prob": 0.05,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting31",
+    "num_images": 4,
+    "ocr_len": 2389,
+    "ml_prob": 0.12215610806869391,
+    "gemini_prob": 0.0,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting32",
+    "num_images": 3,
+    "ocr_len": 1793,
+    "ml_prob": 0.23811428769931647,
+    "gemini_prob": 0.05,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting33",
+    "num_images": 3,
+    "ocr_len": 2301,
+    "ml_prob": 0.15455302524714862,
+    "gemini_prob": 0.05,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting34",
+    "num_images": 3,
+    "ocr_len": 2867,
+    "ml_prob": 0.05926864982882608,
+    "gemini_prob": 0.0,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting35",
+    "num_images": 2,
+    "ocr_len": 831,
+    "ml_prob": 0.28109482539768893,
+    "gemini_prob": 0.1,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting36",
+    "num_images": 2,
+    "ocr_len": 641,
+    "ml_prob": 0.35862860953410214,
+    "gemini_prob": 0.1,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting37",
+    "num_images": 3,
+    "ocr_len": 1953,
+    "ml_prob": 0.052100639978991864,
+    "gemini_prob": 0.05,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  },
+  {
+    "posting_id": "posting38",
+    "num_images": 3,
+    "ocr_len": 3107,
+    "ml_prob": 0.08284499379608841,
+    "gemini_prob": 0.0,
+    "gemini_ok": true,
+    "gemini_error": null,
+    "scam_domain_hit": false
+  }
+]

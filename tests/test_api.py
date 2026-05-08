@@ -52,36 +52,28 @@ def test_analyze_image_multiple_urls_returns_results(monkeypatch) -> None:
         from app.services.ocr_service import OCRResult
 
         return OCRResult(
-            text="this is long enough to run ml inference " * 3,
+            text="this is long enough to pass the ocr length check " * 3,
             text_preview="preview",
-            text_length=100,
+            text_length=150,
             language_guess="en",
             confidence_avg=0.9,
             error=None,
         )
 
-    class _Model:  # noqa: D401
-        threshold = 0.5
-        model_version = "test-model"
+    def _vision(_b: bytes):  # noqa: ANN001
+        from app.services.gemini_service import GeminiVisionResult
 
-        @staticmethod
-        def load_default():  # noqa: ANN001
-            return _Model()
+        return GeminiVisionResult(
+            fraud_probability=0.2,
+            risk_signals=[],
+            reasoning="looks normal",
+            used_gemini=True,
+            error=None,
+        )
 
-        def predict_proba_from_ocr(self, _t: str) -> float:  # noqa: ANN001
-            return 0.2
-
-        def risk_signals_from_ocr(self, _t: str, *, top_k: int = 3) -> list[str]:  # noqa: ANN001
-            return []
-
-        def get_cleaned_input_from_ocr(self, _t: str) -> str:  # noqa: ANN001
-            return "cleaned"
-
-    # _MODEL_CACHE를 초기화해 mock BaselineModel이 사용되도록 보장
-    monkeypatch.setattr(analyze_route, "_MODEL_CACHE", None)
     monkeypatch.setattr(analyze_route, "_download_image_bytes", _ok)
     monkeypatch.setattr(analyze_route, "ocr_from_bytes", _ocr)
-    monkeypatch.setattr(analyze_route, "BaselineModel", _Model)
+    monkeypatch.setattr(analyze_route, "analyze_image_with_gemini_vision", _vision)
 
     with TestClient(app) as client:
         resp = client.post(

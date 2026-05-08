@@ -83,3 +83,14 @@ from_home_handling	\b(package handling from home)\b|집에서\s*포장|재택\s*
 # =========================
 visa_scam	\b(visa sponsorship guaranteed|guaranteed work permit|immigration processing fee)\b|비자\s*보장|워크\s*퍼밋\s*보장|이민\s*수수료
 
+# =========================
+# 11) 메시지형 사기 패턴 (DM·채팅·SNS 채용 사기)
+# =========================
+unsolicited_outreach	\b(i noticed your profile|came across your profile|found your profile|i saw your profile)\b|프로필을\s*보고|프로필\s*확인
+marketplace_posting_job	\b(post(ing)?\s+(ads?|listings?|houses?|rentals?|properties)\s+(on|for|in)\s+(facebook|marketplace|instagram|online))\b
+personal_account_job	\b(use your (personal|own) (account|facebook|instagram|social media|page)|your (personal|own) (facebook|instagram) account)\b|개인\s*계정\s*사용|본인\s*계정으로
+dm_only_recruit	\b(apply (via|through|on) (dm|direct message|instagram|facebook|messenger))\b|dm으로\s*지원|메시지로\s*지원
+no_company_info	\b(no (office|address|website|company (name|info|details)))\b
+microtask_offer	\b(micro.?task|small task|simple online task|easy online (job|task|work))\b|단순\s*온라인\s*작업|쉬운\s*온라인
+informal_interview	\b(interview (via|on|through) (whatsapp|telegram|kakao|wechat|messenger|dm))\b|카톡\s*면접|텔레그램\s*면접
+

@@ -13,14 +13,15 @@ import json
 from pathlib import Path
 import sys
 
-# `python scripts/local_test.py`처럼 파일로 직접 실행할 때도 import가 되도록 경로 보정
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.env import load_dotenv_once
-from app.ml.ml_baseline import BaselineModel
+from app.ml.message_risk_rules import extract_risk_signals
 from app.ml.risk_regions import find_risk_regions
-from app.services.gemini_service import polish_with_gemini
+from app.ml.scam_domains import find_scam_domains
+from app.routes.analyze import FRAUD_THRESHOLD, MODEL_VERSION
+from app.services.gemini_service import analyze_image_with_gemini_vision, polish_with_gemini
 from app.services.ocr_service import ocr_from_bytes, ocr_from_url
 from app.services.scoring_service import score_prediction
 from app.services.summary_builder import build_template_message
@@ -29,8 +30,6 @@ from app.services.summary_builder import build_template_message
 def main() -> int:
     load_dotenv_once()
     parser = argparse.ArgumentParser()
-    # 사용자가 `python3 scripts/local_test.py ./scripts/a.png ...`처럼 실행하는 실수를 줄이기 위해
-    # 파일 경로를 positional로도 받을 수 있게 합니다. (--file도 계속 지원)
     parser.add_argument("file_pos", nargs="?", default=None, help="(옵션) 이미지 파일 경로")
     parser.add_argument("--image-url", default=None)
     parser.add_argument("--file", default=None)
@@ -47,6 +46,7 @@ def main() -> int:
         img_bytes = Path(file_path).read_bytes()
         ocr = ocr_from_bytes(img_bytes)
     else:
+        img_bytes = None
         ocr = ocr_from_url(args.image_url)
 
     print("=== 1) OCR ===")
@@ -58,8 +58,8 @@ def main() -> int:
         print("- error:", ocr.error)
 
     if ocr.text_length < 30:
-        print("\n=== 2) ML ===")
-        print("⚠️ OCR 텍스트가 너무 짧아 ML 추론을 건너뜁니다.")
+        print("\n=== 2) 규칙 기반 신호 ===")
+        print("⚠️ OCR 텍스트가 너무 짧아 신호 추출을 건너뜁니다.")
         print("\n=== 3) Message ===")
         msg = "텍스트 추출에 실패했습니다. 더 선명한 이미지로 다시 시도해 주세요."
         print(msg)
@@ -73,7 +73,7 @@ def main() -> int:
                 "confidenceAvg": ocr.confidence_avg,
             },
             "mlPrediction": {
-                "modelVersion": "fraud-baseline-v1.0.0",
+                "modelVersion": MODEL_VERSION,
                 "fraudProbability": None,
                 "riskScore": None,
                 "riskLevel": None,
@@ -82,50 +82,84 @@ def main() -> int:
             "ui": {"riskLevel": "UNKNOWN", "trustLabel": None, "trustScore": None},
             "analysisSummary": {"score": None, "label": None, "message": msg},
         }
-        print("\n=== 5) Final JSON ===")
+        print("\n=== 4) Final JSON ===")
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return 0
 
-    model = BaselineModel.load_default()
-    prob = model.predict_proba_from_ocr(ocr.text)
-    risk_signals = model.risk_signals_from_ocr(ocr.text, top_k=3)
-    risk_regions = find_risk_regions(model.get_cleaned_input_from_ocr(ocr.text), top_k=5)
-    scores = score_prediction(prob, model.threshold)
+    # 규칙 기반 신호 추출
+    risk_signals = extract_risk_signals(ocr.text, top_k=3)
+    risk_regions = find_risk_regions(ocr.text, top_k=5)
+    scam_domains = find_scam_domains(ocr.text)
 
-    print("\n=== 2) ML ===")
-    print("- modelVersion:", model.model_version)
-    print("- thresholdUsed:", model.threshold)
-    print("- fraudProbability:", prob)
+    print("\n=== 2) 규칙 기반 신호 ===")
+    print("- riskSignals:", risk_signals)
+    print("- travelBanRegionsMatched:", risk_regions)
+    print("- scamDomainsMatched:", scam_domains)
+
+    # Gemini Vision
+    fraud_prob: float = 0.5
+    vision_signals: list[str] = []
+    if img_bytes:
+        vision = analyze_image_with_gemini_vision(img_bytes)
+        print("\n=== 3) Gemini Vision ===")
+        print("- used_gemini:", vision.used_gemini)
+        print("- fraud_probability:", vision.fraud_probability)
+        print("- risk_signals:", vision.risk_signals)
+        print("- reasoning:", vision.reasoning)
+        if vision.error:
+            print("- error:", vision.error)
+
+        if vision.used_gemini and not vision.error:
+            fraud_prob = vision.fraud_probability
+            if vision.risk_signals:
+                seen = {s.lower() for s in vision.risk_signals}
+                extra = [s for s in risk_signals if s.lower() not in seen]
+                risk_signals = (vision.risk_signals + extra)[:5]
+            vision_signals = vision.risk_signals
+    else:
+        print("\n=== 3) Gemini Vision ===")
+        print("- (URL 입력 시 Vision 미실행)")
+
+    if scam_domains:
+        fraud_prob = 1.0
+
+    scores = score_prediction(fraud_prob, FRAUD_THRESHOLD)
+
+    print("\n=== 4) 점수 ===")
+    print("- modelVersion:", MODEL_VERSION)
+    print("- thresholdUsed:", FRAUD_THRESHOLD)
+    print("- fraudProbability:", fraud_prob)
     print("- riskScore:", scores.risk_score)
-    print("- riskLevel(modelPolicy):", scores.model_risk_level)
+    print("- riskLevel(model):", scores.model_risk_level)
     print("- uiRiskLevel:", scores.ui_risk_level)
     print("- trustScore:", scores.trust_score)
     print("- uiTrustLabel:", scores.ui_trust_label)
-    print("- riskSignals:", risk_signals)
-    print("- travelBanRegionsMatched:", risk_regions)
+    print("- riskSignals (최종):", risk_signals)
 
     template = build_template_message(
         company_name=args.company_name,
         trust_score=scores.trust_score,
         risk_score=scores.risk_score,
         ui_trust_label=scores.ui_trust_label,
+        has_signals=bool(risk_signals),
         risk_signals=risk_signals,
         travel_ban_regions=risk_regions,
+        scam_domains=scam_domains,
     )
-    print("\n=== 3) Template ===")
+    print("\n=== 5) Template ===")
     print(template)
 
     gem = polish_with_gemini(
         template_message=template,
         trust_score=scores.trust_score,
         trust_label=scores.ui_trust_label,
-        fraud_probability=prob,
+        fraud_probability=fraud_prob,
         risk_score=scores.risk_score,
         risk_signals=risk_signals,
     )
     final_msg = gem.message
 
-    print("\n=== 4) Gemini ===")
+    print("\n=== 6) Gemini Polish ===")
     print("- used_gemini:", gem.used_gemini)
     print("- fallback_to_template:", gem.fallback_to_template)
     print("- no_change:", gem.no_change)
@@ -143,11 +177,11 @@ def main() -> int:
             "confidenceAvg": ocr.confidence_avg,
         },
         "mlPrediction": {
-            "modelVersion": model.model_version,
-            "fraudProbability": prob,
+            "modelVersion": MODEL_VERSION,
+            "fraudProbability": fraud_prob,
             "riskScore": scores.risk_score,
             "riskLevel": scores.model_risk_level,
-            "thresholdUsed": model.threshold,
+            "thresholdUsed": FRAUD_THRESHOLD,
         },
         "explanation": {
             "riskSignals": risk_signals,
@@ -166,16 +200,14 @@ def main() -> int:
     }
     if args.debug:
         out["debug"] = {
-            "inputStructured": model.structure_ocr_text(ocr.text),
-            "inputCleaned": model.get_cleaned_input_from_ocr(ocr.text),
+            "visionSignals": vision_signals,
             "promptUsed": gem.prompt_used,
             "usedGemini": gem.used_gemini,
             "fallbackToTemplate": gem.fallback_to_template,
             "noChange": gem.no_change,
             "geminiError": gem.error,
-            "explanation": {"riskSignals": risk_signals},
         }
-    print("\n=== 5) Final JSON ===")
+    print("\n=== 7) Final JSON ===")
     print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0
 

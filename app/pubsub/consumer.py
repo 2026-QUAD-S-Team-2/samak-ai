@@ -36,7 +36,7 @@ async def _process_message(message: pubsub_v1.subscriber.message.Message) -> Non
                 logger.error("이미지 다운로드 실패: url=%s detail=%s", url, e.detail)
                 return {
                     "analysisId": str(uuid4()),
-                    "mlPrediction": {"fraudProbability": None, "riskScore": None, "riskLevel": None, "modelVersion": "fraud-baseline-v1.0.0", "thresholdUsed": None},
+                    "mlPrediction": {"fraudProbability": None, "riskScore": None, "riskLevel": None, "modelVersion": "gemini-rule-v1.0.0", "thresholdUsed": None},
                     "explanation": {"riskSignals": []},
                     "travelBanRegionsMatched": [],
                     "analysisSummary": {"score": None, "label": None, "message": str(e.detail)},

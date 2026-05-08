@@ -8,7 +8,7 @@ from __future__ import annotations
 - 또는 application/json: { "imageUrl": "..." } (단일) 또는 { "imageUrls": [...] } (복수)
 
 처리:
-이미지 → [OCR + Gemini Vision 병렬] → ML 추론 → 앙상블 → 점수 계산 → 메시지 생성 → 응답
+이미지 → [OCR + Gemini Vision 병렬] → 규칙 기반 신호 추출 → 점수 계산 → 메시지 생성 → 응답
 """
 
 import asyncio
@@ -19,8 +19,9 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.ml.ml_baseline import BaselineModel, ModelArtifactsError
+from app.ml.message_risk_rules import extract_risk_signals
 from app.ml.risk_regions import find_risk_regions
+from app.ml.scam_domains import find_scam_domains
 from app.services.gemini_service import GeminiVisionResult, analyze_image_with_gemini_vision, polish_with_gemini
 from app.services.ocr_service import OCRResult, ocr_from_bytes
 from app.services.scoring_service import PredictionScores, score_prediction
@@ -33,20 +34,8 @@ router = APIRouter(prefix="/v1/analyze", tags=["analyze"])
 
 _URL_SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)
 MAX_IMAGE_BATCH = 10
-
-# 앱 시작 시 1회 로드 후 캐시 (_init_model 로 초기화)
-_MODEL_CACHE: BaselineModel | None = None
-
-
-def _init_model() -> None:
-    global _MODEL_CACHE
-    if _MODEL_CACHE is not None:
-        return
-    try:
-        _MODEL_CACHE = BaselineModel.load_default()
-        logger.info("ML 모델 로드 완료: %s", _MODEL_CACHE.model_version)
-    except ModelArtifactsError as e:
-        logger.warning("ML 모델 로드 실패 (시작 시, 첫 요청 시 재시도): %s", e)
+FRAUD_THRESHOLD = 0.6242
+MODEL_VERSION = "gemini-rule-v1.0.0"
 
 
 def _get_str(meta: dict[str, object], key: str) -> str | None:
@@ -99,8 +88,8 @@ async def _run_analysis(
 
     company_name = _get_str(meta, "companyName")
 
-    # 안전장치: OCR 텍스트가 너무 짧으면 ML 추론을 건너뜁니다.
-    if ocr.text_length < 30:
+    # OCR도 실패하고 Gemini도 실패한 경우에만 UNKNOWN 조기 반환
+    if ocr.text_length < 30 and (not vision_result.used_gemini or vision_result.error):
         analysis_id = str(uuid4())
         message = "텍스트 추출에 실패했습니다. 더 선명한 이미지로 다시 시도해 주세요."
         resp: dict = {
@@ -113,13 +102,14 @@ async def _run_analysis(
                 "confidenceAvg": ocr.confidence_avg,
             },
             "mlPrediction": {
-                "modelVersion": "fraud-baseline-v1.0.0",
+                "modelVersion": MODEL_VERSION,
                 "fraudProbability": None,
                 "riskScore": None,
                 "riskLevel": None,
                 "thresholdUsed": None,
             },
             "travelBanRegionsMatched": [],
+            "scamDomainsMatched": [],
             "explanation": {
                 "riskSignals": [],
                 "note": "Signals are matched against predefined scam-pattern rules.",
@@ -128,69 +118,42 @@ async def _run_analysis(
             "analysisSummary": {"score": None, "label": None, "message": message},
         }
         if debug:
-            resp["debug"] = {"ocrError": ocr.error}
+            resp["debug"] = {"ocrError": ocr.error, "visionError": vision_result.error}
         return resp
 
-    # ML 1차 판단
-    global _MODEL_CACHE
-    cleaned_input = ""
-    model = None  # type: ignore[assignment]
-    try:
-        if _MODEL_CACHE is None:
-            _MODEL_CACHE = BaselineModel.load_default()
-        model = _MODEL_CACHE
-        fraud_prob = model.predict_proba_from_ocr(ocr.text)
-        risk_signals = model.risk_signals_from_ocr(ocr.text, top_k=3)
-        cleaned_input = model.get_cleaned_input_from_ocr(ocr.text)
-        risk_regions = find_risk_regions(cleaned_input, top_k=5)
-        threshold_used = model.threshold
-        model_version = model.model_version
-    except ModelArtifactsError as e:
-        logger.error("모델 아티팩트 로드 실패, UNKNOWN 반환: %s", e)
-        analysis_id = str(uuid4())
-        resp = {
-            "analysisId": analysis_id,
-            "type": analysis_type,
-            "ocr": {
-                "textPreview": ocr.text_preview,
-                "textLength": ocr.text_length,
-                "languageGuess": ocr.language_guess,
-                "confidenceAvg": ocr.confidence_avg,
-            },
-            "mlPrediction": {
-                "modelVersion": "fraud-baseline-v1.0.0",
-                "fraudProbability": None,
-                "riskScore": None,
-                "riskLevel": None,
-                "thresholdUsed": None,
-            },
-            "travelBanRegionsMatched": [],
-            "explanation": {"riskSignals": [], "note": "Signals are matched against predefined scam-pattern rules."},
-            "ui": {"riskLevel": "UNKNOWN", "trustLabel": None, "trustScore": None},
-            "analysisSummary": {"score": None, "label": None, "message": "분석 모델 로드에 실패했습니다. 잠시 후 다시 시도해 주세요."},
-        }
-        if debug:
-            resp["debug"] = {"modelError": str(e)}
-        return resp
+    # 규칙 기반 신호 추출 (OCR 텍스트가 충분한 경우)
+    fraud_prob: float = 0.5
+    risk_signals: list[str] = []
+    risk_regions: list[str] = []
+    scam_domains: list[str] = []
 
-    fraud_prob_ml = float(fraud_prob)  # ML 단독 예측값 (debug용)
+    if ocr.text_length >= 30:
+        risk_signals = extract_risk_signals(ocr.text, top_k=3)
+        risk_regions = find_risk_regions(ocr.text, top_k=5)
+        scam_domains = find_scam_domains(ocr.text)
 
-    # Vision 앙상블: ML 40% + Gemini Vision 60%
+    # Gemini Vision 결과 적용
     used_vision = False
     vision_error: str | None = None
     if vision_result.used_gemini and not vision_result.error:
-        fraud_prob = 0.4 * fraud_prob_ml + 0.6 * vision_result.fraud_probability
+        fraud_prob = vision_result.fraud_probability
         if vision_result.risk_signals:
-            risk_signals = vision_result.risk_signals
+            seen = {s.lower() for s in vision_result.risk_signals}
+            extra = [s for s in risk_signals if s.lower() not in seen]
+            risk_signals = (vision_result.risk_signals + extra)[:5]
         used_vision = True
     else:
         vision_error = vision_result.error
         if vision_error:
-            logger.warning("Gemini Vision fallback to ML-only: %s", vision_error)
+            logger.warning("Gemini Vision 실패, 규칙 기반으로만 진행: %s", vision_error)
 
-    scores: PredictionScores = score_prediction(fraud_prob, threshold_used)
+    # 알려진 사기 도메인 감지 시 확률 1.0으로 확정
+    if scam_domains:
+        fraud_prob = 1.0
 
-    # 메시지 생성: 항상 템플릿 → polish_with_gemini 경로
+    scores: PredictionScores = score_prediction(fraud_prob, FRAUD_THRESHOLD)
+
+    # 메시지 생성: 템플릿 → polish_with_gemini
     prompt_used: str | None = None
     used_gemini = False
     fallback_to_template = True
@@ -204,6 +167,7 @@ async def _run_analysis(
         ui_trust_label=scores.ui_trust_label,
         has_signals=bool(risk_signals),
         travel_ban_regions=risk_regions,
+        scam_domains=scam_domains,
     )
     polished = template_message
     try:
@@ -231,6 +195,7 @@ async def _run_analysis(
         "analysisId": analysis_id,
         "type": analysis_type,
         "travelBanRegionsMatched": risk_regions,
+        "scamDomainsMatched": scam_domains,
         "ocr": {
             "textPreview": ocr.text_preview,
             "textLength": ocr.text_length,
@@ -238,11 +203,11 @@ async def _run_analysis(
             "confidenceAvg": ocr.confidence_avg,
         },
         "mlPrediction": {
-            "modelVersion": model_version,
+            "modelVersion": MODEL_VERSION,
             "fraudProbability": float(fraud_prob),
             "riskScore": scores.risk_score,
             "riskLevel": scores.model_risk_level,
-            "thresholdUsed": float(threshold_used),
+            "thresholdUsed": float(FRAUD_THRESHOLD),
         },
         "explanation": {
             "riskSignals": risk_signals,
@@ -265,19 +230,14 @@ async def _run_analysis(
             "usedGeminiVision": used_vision,
             "visionFraudProbability": vision_result.fraud_probability if used_vision else None,
             "visionError": vision_error,
-            "mlRawFraudProbability": fraud_prob_ml,
             "usedGemini": used_gemini,
             "fallbackToTemplate": fallback_to_template,
             "noChange": no_change,
             "promptUsed": prompt_used,
             "geminiError": gemini_error,
             "ocrError": ocr.error,
+            "riskRegionsMatched": risk_regions,
         }
-        if model is not None:
-            resp["debug"]["inputStructured"] = model.structure_ocr_text(ocr.text)
-            resp["debug"]["inputCleaned"] = model.get_cleaned_input_from_ocr(ocr.text)
-            resp["debug"]["explanation"] = {"riskSignals": risk_signals}
-            resp["debug"]["riskRegionsMatched"] = risk_regions
 
     return resp
 

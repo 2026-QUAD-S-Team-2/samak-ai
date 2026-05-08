@@ -39,14 +39,6 @@ certifi==2026.1.4
 charset-normalizer==3.4.4
 idna==3.11
 
-# ML inference (scikit-learn 기반)
-pandas==2.2.3
-scikit-learn==1.8.0
-joblib==1.5.3
-numpy==2.4.2
-scipy==1.17.0
-threadpoolctl==3.6.0
-
 # OCR (easyocr는 torch를 내부 사용 — CPU 전용은 Dockerfile에서 설치)
 easyocr
 opencv-python

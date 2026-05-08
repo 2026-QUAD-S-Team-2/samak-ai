@@ -1,7 +1,7 @@
 # Samak AI — 채용 사기 탐지 서비스
 
 **해외 채용 공고 이미지**를 받아 사기 여부를 자동으로 분석하는 API 서비스입니다.
-이미지에서 텍스트를 추출(OCR)하고, 머신러닝 모델과 Gemini AI를 함께 사용해 사기 확률과 위험 신호를 반환합니다.
+이미지에서 텍스트를 추출(OCR)하고, **Gemini Vision**과 **규칙 기반 패턴 매칭**으로 사기 확률과 위험 신호를 반환합니다.
 
 메시지 브로커로 **Google Cloud Pub/Sub**을 사용합니다.
 
@@ -17,25 +17,22 @@
 │  병렬 처리 (asyncio.gather)                           │
 │                                                     │
 │  ┌─────────────────────┐  ┌──────────────────────┐  │
-│  │  OCR (EasyOCR)      │  │  Gemini 이미지 분석     │  │
+│  │  OCR (EasyOCR)      │  │  Gemini Vision 분석    │  │
 │  │  이미지 → 텍스트 추출   │  │  (멀티모달 입력)         │  │
 │  └─────────────────────┘  └──────────────────────┘  │
 └─────────────────────────────────────────────────────┘
         │                           │
-        ▼                           │
-┌───────────────────────┐           │
-│  ML 판단               │           │
-│  TF-IDF +             │           │
-│  Logistic Regression  │           │
-│  사기 확률 계산          │           │
-└───────────────────────┘           │
-        │                           │
-        └──────────┬────────────────┘
+        ▼                           ▼
+┌───────────────────────────────────────────────────┐
+│  규칙 기반 신호 추출                                  │
+│  risk_signals / travel_ban_regions / scam_domains  │
+└───────────────────────────────────────────────────┘
+                   │
                    ▼
         ┌─────────────────────┐
-        │  앙상블               │
-        │  ML × 0.4           │
-        │  + Gemini × 0.6     │
+        │  사기 확률 결정        │
+        │  Gemini Vision 100%  │
+        │  (scam domain → 1.0) │
         └─────────────────────┘
                    │
                    ▼
@@ -68,19 +65,7 @@
 - 카카오톡/텔레그램 등 비공식 채널 연락 요구
 - 레이아웃이 조잡하거나 로고가 위조처럼 보임
 
-### 2. Hybrid ML + Gemini Ensemble
-
-OCR → ML과 Gemini 이미지 분석이 **병렬로** 각각 사기 확률을 산출하고, **가중 평균(40:60)** 으로 최종 확률을 계산합니다.
-
-```
-최종 확률 = ML확률 × 0.4 + Gemini확률 × 0.6
-```
-
-### 3. OCR + Gemini 병렬 실행 (asyncio.gather)
-
-EasyOCR과 Gemini API 호출을 `asyncio.to_thread` + `asyncio.gather`로 동시에 실행합니다.
-
-### 4. Structured LLM Output (JSON mode)
+### 2. Structured LLM Output (JSON mode)
 
 Gemini에게 자유형 텍스트가 아닌 **구조화된 JSON 출력**을 요청합니다.
 `fraud_probability`, `risk_signals`, `reasoning` 각 필드를 독립적으로 활용합니다.
@@ -93,29 +78,32 @@ Gemini에게 자유형 텍스트가 아닌 **구조화된 JSON 출력**을 요�
 }
 ```
 
-### 5. Gemini 메시지 polish
+### 3. OCR + Gemini 병렬 실행 (asyncio.gather)
 
-분석 결과를 바탕으로 생성된 템플릿 메시지를 Gemini가 자연스러운 한국어로 다듬습니다.
+EasyOCR과 Gemini API 호출을 `asyncio.to_thread` + `asyncio.gather`로 동시에 실행합니다.
 
-### 6. OCR 파이프라인
+### 4. 규칙 기반 신호 탐지
 
-EasyOCR로 영어 이미지에서 텍스트를 추출합니다.
-이미지 URL과 multipart 파일 업로드 모두 지원하며, 글로벌 캐싱으로 초기화 비용을 최소화합니다.
+OCR 텍스트에서 정규식 패턴(`risk_patterns.txt`)으로 위험 신호를 추출합니다.
+알려진 사기 도메인(`scam_domains.py`)이 탐지되면 사기 확률을 즉시 1.0으로 확정합니다.
 
-### 7. 위험 지역 자동 탐지
+### 5. 위험 지역 자동 탐지
 
 텍스트에서 **대한민국 외교부가 지정한 여행금지 지역**이 언급되면 자동으로 탐지해 결과에 포함합니다.
 
-### 8. 병렬 이미지 처리 (asyncio.gather)
+### 6. Gemini 메시지 polish
+
+분석 결과를 바탕으로 생성된 템플릿 메시지를 Gemini가 자연스러운 한국어로 다듬습니다.
+
+### 7. 병렬 이미지 처리 (asyncio.gather)
 
 `imageUrls` 필드로 여러 이미지를 한 번에 요청할 수 있습니다.
 5장 이상은 `asyncio.gather`로 병렬 처리합니다.
 
-### 9. Graceful Degradation
+### 8. Graceful Degradation
 
-- Gemini API key 없어도 서비스 정상 동작 (ML 단독 결과로 fallback)
-- ML 모델 파일 없어도 200 응답 유지 (보수적 0% 확률 반환)
-- Gemini 응답 실패 시 ML 단독 결과 사용, polish 실패 시 템플릿 메시지 사용
+- Gemini API key 없으면 fraud_probability 0.5로 UNKNOWN 처리
+- Gemini 응답 실패 시 보수적 0.5 확률 사용, polish 실패 시 템플릿 메시지 사용
 
 ---
 
@@ -127,7 +115,6 @@ EasyOCR로 영어 이미지에서 텍스트를 추출합니다.
 {
   "status": "ok",
   "checks": {
-    "model": "ok",
     "minWageData": "ok",
     "pubsub": "configured"
   }
@@ -181,25 +168,25 @@ countryCode   : SG
     "confidenceAvg": 0.91
   },
   "mlPrediction": {
-    "modelVersion": "fraud-baseline-v1.0.0",
-    "fraudProbability": 0.63,
-    "riskScore": 63,
-    "riskLevel": "MEDIUM",
-    "thresholdUsed": 0.346
+    "modelVersion": "gemini-rule-v1.0.0",
+    "fraudProbability": 0.83,
+    "riskScore": 83,
+    "riskLevel": "HIGH",
+    "thresholdUsed": 0.6242
   },
   "explanation": {
     "riskSignals": ["upfront payment", "no interview required"],
     "note": "Signals are matched against predefined scam-pattern rules."
   },
   "ui": {
-    "riskLevel": "MEDIUM",
-    "trustLabel": "Warning",
-    "trustScore": 37
+    "riskLevel": "HIGH",
+    "trustLabel": "Danger",
+    "trustScore": 17
   },
   "analysisSummary": {
-    "score": 37,
-    "label": "Warning",
-    "message": "해당 공고는 선불 비용을 요구하고 있어 사기 패턴과 일치합니다. ML 모델과 AI 분석 결과 63%의 사기 확률이 확인되었습니다. 지원 전 업체 정보를 반드시 검증하시기 바랍니다."
+    "score": 17,
+    "label": "Danger",
+    "message": "해당 공고는 선불 비용을 요구하고 있어 사기 패턴과 일치합니다. 지원 전 업체 정보를 반드시 검증하시기 바랍니다."
   }
 }
 ```
@@ -217,8 +204,7 @@ countryCode   : SG
 
 | 변수 | 기본값 | 설명 |
 |------|--------|------|
-| `MODEL_DIR` | `models/fraud-baseline` | ML 모델 파일 경로 |
-| `GEMINI_API_KEY` | (없음) | Google Gemini API 키. 없으면 ML 단독으로 동작 |
+| `GEMINI_API_KEY` | (없음) | Google Gemini API 키. 없으면 fraud_probability 0.5로 처리 |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | 사용할 Gemini 모델 |
 | `LOG_LEVEL` | `INFO` | Python 로깅 레벨 |
 | `GCP_PROJECT_ID` | (없음) | Google Cloud 프로젝트 ID |
@@ -339,24 +325,14 @@ app/
 │   ├── analyze.py           # /v1/analyze/image 엔드포인트
 │   └── wage_warning.py      # 최저임금 경고 엔드포인트
 ├── ml/
-│   ├── ml_baseline.py       # TF-IDF + LR 모델 추론
 │   ├── message_risk_rules.py# 정규식 기반 위험 신호 탐지
 │   ├── risk_patterns.txt    # 위험 패턴 정의 파일
-│   └── risk_regions.py      # 여행금지 지역 탐지
+│   ├── risk_regions.py      # 여행금지 지역 탐지
+│   ├── risk_regions.txt     # 여행금지 지역 목록
+│   └── scam_domains.py      # 알려진 사기 도메인 목록
 └── services/
     ├── gemini_service.py    # Gemini Vision 분석, 메시지 polish
     ├── ocr_service.py       # EasyOCR 래퍼
     ├── scoring_service.py   # 확률 → 점수/레벨 변환
     └── summary_builder.py   # 템플릿 메시지 생성
-
-models/
-└── fraud-baseline/
-    ├── model.joblib         # 학습된 Logistic Regression
-    ├── vectorizer.joblib    # TF-IDF 벡터라이저
-    └── metadata.json        # 모델 버전, threshold, 학습 정보
-
-training/
-├── train_baseline.py        # 모델 학습 스크립트
-├── evaluate_baseline.py     # 성능 평가 스크립트 (PR-AUC, F1, Recall)
-└── preprocess.py            # 데이터 전처리 스크립트
 ```

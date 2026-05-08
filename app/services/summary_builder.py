@@ -17,6 +17,7 @@ def build_template_message(
     # backward compatibility: older callers only tell whether signals exist
     has_signals: bool | None = None,
     travel_ban_regions: list[str] | None = None,
+    scam_domains: list[str] | None = None,
 ) -> str:
     # 요구사항: 자연어는 앞으로 무조건 한국어로 고정 (언어 감지와 무관)
     # NOTE: 회사명은 UI 레이아웃/정책이 정리되기 전까지 메시지에 넣지 않습니다.
@@ -26,6 +27,11 @@ def build_template_message(
     s1 = f"AI 분석 결과, 해당 공고는 {ui_trust_label} 단계로 분류되었습니다."
     s2 = f"신뢰도는 약 {trust_score}%로 분석되었습니다."
     parts: list[str] = [s1, s2]
+
+    domains = [d.strip() for d in (scam_domains or []) if d and d.strip()]
+    if domains:
+        shown = ", ".join(domains[:3])
+        parts.append(f"경고: 해당 공고에서 알려진 사기 도메인({shown})이 발견되었습니다. 이 도메인은 구직 사기에 활용되는 가짜 도메인으로 알려져 있으니 절대 응하지 마세요.")
 
     signals = [s.strip() for s in (risk_signals or []) if s and s.strip()]
     if not signals and has_signals:
