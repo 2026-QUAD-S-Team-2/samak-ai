@@ -10,7 +10,7 @@ Gemini 서비스.
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 import re
 
@@ -76,6 +76,8 @@ class GeminiVisionResult:
     reasoning: str
     used_gemini: bool
     error: str | None
+    domains_found: list[str] = field(default_factory=list)
+    regions_mentioned: list[str] = field(default_factory=list)
 
 
 def _detect_mime_type(data: bytes) -> str:
@@ -102,11 +104,16 @@ def _build_vision_prompt() -> str:
         "- 여행금지 국가·지역 파견 근무 제안\n"
         "- 카카오톡/텔레그램 등 비공식 채널 연락 요구\n"
         "- 레이아웃이 조잡하거나 로고가 위조처럼 보임\n\n"
+        "[추가 추출 항목]\n"
+        "- domains_found: 이미지에 보이는 모든 URL·도메인 주소 (예: example.com, t.me/xxx). 없으면 빈 배열.\n"
+        "- regions_mentioned: 이미지에 언급된 모든 국가·지역명을 영문 소문자로 추출 (예: myanmar, cambodia, myawaddy). 없으면 빈 배열.\n\n"
         "응답 형식 (JSON만, 마크다운 코드블록 없이):\n"
         "{\n"
         '  "fraud_probability": <0.0~1.0 사이 소수>,\n'
         '  "risk_signals": ["신호1", "신호2"],\n'
-        '  "reasoning": "<판단 근거 2~3문장, 한국어>"\n'
+        '  "reasoning": "<판단 근거 2~3문장, 한국어>",\n'
+        '  "domains_found": ["domain1.com"],\n'
+        '  "regions_mentioned": ["country1", "region1"]\n'
         "}"
     )
 
@@ -147,8 +154,18 @@ def analyze_image_with_gemini_vision(image_bytes: bytes) -> GeminiVisionResult:
         fraud_prob = max(0.0, min(1.0, float(data.get("fraud_probability", 0.5))))
         signals = [str(s) for s in data.get("risk_signals", [])][:5]
         reasoning = str(data.get("reasoning", "")).strip()
+        domains_found = [str(d) for d in data.get("domains_found", [])][:10]
+        regions_mentioned = [str(r).lower() for r in data.get("regions_mentioned", [])][:10]
 
-        return GeminiVisionResult(fraud_probability=fraud_prob, risk_signals=signals, reasoning=reasoning, used_gemini=True, error=None)
+        return GeminiVisionResult(
+            fraud_probability=fraud_prob,
+            risk_signals=signals,
+            reasoning=reasoning,
+            used_gemini=True,
+            error=None,
+            domains_found=domains_found,
+            regions_mentioned=regions_mentioned,
+        )
     except Exception as e:  # noqa: BLE001
         return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=True, error=str(e))
 

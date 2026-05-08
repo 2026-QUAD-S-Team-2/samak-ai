@@ -48,18 +48,6 @@ def test_analyze_image_multiple_urls_returns_results(monkeypatch) -> None:
     async def _ok(_url: str) -> bytes:
         return b"fake"
 
-    def _ocr(_b: bytes):  # noqa: ANN001
-        from app.services.ocr_service import OCRResult
-
-        return OCRResult(
-            text="this is long enough to pass the ocr length check " * 3,
-            text_preview="preview",
-            text_length=150,
-            language_guess="en",
-            confidence_avg=0.9,
-            error=None,
-        )
-
     def _vision(_b: bytes):  # noqa: ANN001
         from app.services.gemini_service import GeminiVisionResult
 
@@ -72,7 +60,6 @@ def test_analyze_image_multiple_urls_returns_results(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(analyze_route, "_download_image_bytes", _ok)
-    monkeypatch.setattr(analyze_route, "ocr_from_bytes", _ocr)
     monkeypatch.setattr(analyze_route, "analyze_image_with_gemini_vision", _vision)
 
     with TestClient(app) as client:

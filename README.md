@@ -1,7 +1,7 @@
 # Samak AI — 채용 사기 탐지 서비스
 
 **해외 채용 공고 이미지**를 받아 사기 여부를 자동으로 분석하는 API 서비스입니다.
-이미지에서 텍스트를 추출(OCR)하고, **Gemini Vision**과 **규칙 기반 패턴 매칭**으로 사기 확률과 위험 신호를 반환합니다.
+**Gemini Vision**으로 이미지를 직접 분석하고, **규칙 기반 패턴 매칭**으로 사기 확률과 위험 신호를 반환합니다.
 
 메시지 브로커로 **Google Cloud Pub/Sub**을 사용합니다.
 
@@ -13,19 +13,19 @@
 요청 (Google Cloud Pub/Sub)
         │  analysis-request-subscription
         ▼
-┌─────────────────────────────────────────────────────┐
-│  병렬 처리 (asyncio.gather)                           │
-│                                                     │
-│  ┌─────────────────────┐  ┌──────────────────────┐  │
-│  │  OCR (EasyOCR)      │  │  Gemini Vision 분석    │  │
-│  │  이미지 → 텍스트 추출   │  │  (멀티모달 입력)         │  │
-│  └─────────────────────┘  └──────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-        │                           │
-        ▼                           ▼
+        ┌──────────────────────┐
+        │  Gemini Vision 분석    │
+        │  (이미지 직접 입력)      │
+        │  → fraud_probability  │
+        │  → risk_signals       │
+        │  → domains_found      │
+        │  → regions_mentioned  │
+        └──────────────────────┘
+                   │
+                   ▼
 ┌───────────────────────────────────────────────────┐
-│  규칙 기반 신호 추출                                  │
-│  risk_signals / travel_ban_regions / scam_domains  │
+│  규칙 기반 검증                                      │
+│  scam_domains 매칭 / travel_ban_regions 매칭         │
 └───────────────────────────────────────────────────┘
                    │
                    ▼
@@ -68,30 +68,24 @@
 ### 2. Structured LLM Output (JSON mode)
 
 Gemini에게 자유형 텍스트가 아닌 **구조화된 JSON 출력**을 요청합니다.
-`fraud_probability`, `risk_signals`, `reasoning` 각 필드를 독립적으로 활용합니다.
+`fraud_probability`, `risk_signals`, `domains_found`, `regions_mentioned` 필드를 독립적으로 활용합니다.
 
 ```json
 {
   "fraud_probability": 0.73,
   "risk_signals": ["선불 요구 패턴", "해외 근무 조건"],
-  "reasoning": "해당 공고는 선불 비용을 요구하고 있어 전형적인 사기 패턴과 일치합니다..."
+  "reasoning": "해당 공고는 선불 비용을 요구하고 있어 전형적인 사기 패턴과 일치합니다...",
+  "domains_found": ["aloisstaffing.com"],
+  "regions_mentioned": ["myanmar", "myawaddy"]
 }
 ```
 
-### 3. OCR + Gemini 병렬 실행 (asyncio.gather)
+### 3. 규칙 기반 검증
 
-EasyOCR과 Gemini API 호출을 `asyncio.to_thread` + `asyncio.gather`로 동시에 실행합니다.
+Gemini가 추출한 `domains_found`를 알려진 사기 도메인 목록과 매칭합니다. 탐지되면 사기 확률을 즉시 1.0으로 확정합니다.
+`regions_mentioned`는 **대한민국 외교부 여행금지 지역 목록**과 매칭해 결과에 포함합니다.
 
-### 4. 규칙 기반 신호 탐지
-
-OCR 텍스트에서 정규식 패턴(`risk_patterns.txt`)으로 위험 신호를 추출합니다.
-알려진 사기 도메인(`scam_domains.py`)이 탐지되면 사기 확률을 즉시 1.0으로 확정합니다.
-
-### 5. 위험 지역 자동 탐지
-
-텍스트에서 **대한민국 외교부가 지정한 여행금지 지역**이 언급되면 자동으로 탐지해 결과에 포함합니다.
-
-### 6. Gemini 메시지 polish
+### 4. Gemini 메시지 polish
 
 분석 결과를 바탕으로 생성된 템플릿 메시지를 Gemini가 자연스러운 한국어로 다듬습니다.
 
@@ -161,12 +155,8 @@ countryCode   : SG
 {
   "analysisId": "uuid",
   "type": "JOB_POST",
-  "ocr": {
-    "textPreview": "Earn $5,000/week working from home...",
-    "textLength": 847,
-    "languageGuess": "en",
-    "confidenceAvg": 0.91
-  },
+  "travelBanRegionsMatched": [],
+  "scamDomainsMatched": [],
   "mlPrediction": {
     "modelVersion": "gemini-rule-v1.0.0",
     "fraudProbability": 0.83,
@@ -176,7 +166,7 @@ countryCode   : SG
   },
   "explanation": {
     "riskSignals": ["upfront payment", "no interview required"],
-    "note": "Signals are matched against predefined scam-pattern rules."
+    "note": "Signals detected by Gemini Vision analysis."
   },
   "ui": {
     "riskLevel": "HIGH",
@@ -332,7 +322,6 @@ app/
 │   └── scam_domains.py      # 알려진 사기 도메인 목록
 └── services/
     ├── gemini_service.py    # Gemini Vision 분석, 메시지 polish
-    ├── ocr_service.py       # EasyOCR 래퍼
     ├── scoring_service.py   # 확률 → 점수/레벨 변환
     └── summary_builder.py   # 템플릿 메시지 생성
 ```

@@ -14,7 +14,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 # Swagger에서 enum으로 노출되도록 Literal로 고정합니다.
 # - CRITICAL: (선택) 향후 정책 확장용
-# - UNKNOWN: OCR 실패 등으로 판단 불가 케이스
+# - UNKNOWN: Gemini 분석 실패 등으로 판단 불가 케이스
 RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL", "UNKNOWN"]
 WageMessageType = Literal["NONE", "INFO", "WARNING", "ERROR"]
 
@@ -102,7 +102,7 @@ class AnalyzeImageResponse(BaseModel):
         None,
         ge=0.0,
         le=1.0,
-        description="사기 확률(0~1). OCR 실패 등으로 추론을 생략한 경우 null.",
+        description="사기 확률(0~1). Gemini 분석 실패 등으로 추론을 생략한 경우 null.",
         examples=[0.8735],
         json_schema_extra={"type": "number", "format": "float"},
     )

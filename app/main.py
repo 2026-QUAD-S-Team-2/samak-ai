@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 FastAPI 엔트리포인트.
 
-- /v1/analyze/image: 이미지 입력 → OCR + Gemini Vision → 규칙 기반 신호 추출 → 점수 → 요약문 생성
+- /v1/analyze/image: 이미지 입력 → Gemini Vision → 규칙 기반 신호 추출 → 점수 → 요약문 생성
 - /healthz: 헬스체크
 """
 

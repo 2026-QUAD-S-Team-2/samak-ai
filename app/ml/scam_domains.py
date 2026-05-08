@@ -22,7 +22,7 @@ _DOMAIN_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 
 
 def find_scam_domains(text: str) -> list[str]:
-    """OCR 텍스트에서 알려진 사기 도메인을 찾아 반환합니다."""
+    """텍스트에서 알려진 사기 도메인을 찾아 반환합니다."""
     if not text:
         return []
     return [domain for domain, pattern in _DOMAIN_PATTERNS if pattern.search(text)]

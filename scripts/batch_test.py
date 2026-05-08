@@ -30,12 +30,10 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.env import load_dotenv_once
-from app.ml.message_risk_rules import extract_risk_signals
 from app.ml.risk_regions import find_risk_regions
 from app.ml.scam_domains import find_scam_domains
 from app.routes.analyze import FRAUD_THRESHOLD
 from app.services.gemini_service import analyze_image_with_gemini_vision
-from app.services.ocr_service import ocr_from_bytes
 from app.services.scoring_service import score_prediction
 from app.services.summary_builder import build_template_message
 
@@ -59,46 +57,24 @@ def _group_by_posting(img_dir: Path) -> dict[str, list[Path]]:
 
 def _analyze(image_paths: list[Path]) -> dict:
     """한 공고(1장 이상의 이미지)를 분석."""
-    all_ocr_texts: list[str] = []
-    all_image_bytes: list[bytes] = []
+    img_bytes = image_paths[0].read_bytes()
+    vision = analyze_image_with_gemini_vision(img_bytes)
 
-    for path in image_paths:
-        img_bytes = path.read_bytes()
-        all_image_bytes.append(img_bytes)
-        ocr = ocr_from_bytes(img_bytes)
-        if ocr.text_length >= 10:
-            all_ocr_texts.append(ocr.text)
-
-    combined_text = "\n".join(all_ocr_texts)
-    combined_len = sum(len(t) for t in all_ocr_texts)
-
-    vision = analyze_image_with_gemini_vision(all_image_bytes[0])
-
-    if combined_len < 30:
+    if not vision.used_gemini or vision.error:
         return {
-            "ocr_len": combined_len,
-            "ocr_preview": combined_text[:80],
             "fraud_prob": None,
             "risk_level": "UNKNOWN",
             "trust_score": None,
             "scam_domains": [],
             "risk_signals": [],
-            "message": "OCR 실패 (텍스트 부족)",
+            "message": f"Gemini 분석 실패: {vision.error}",
             "num_images": len(image_paths),
         }
 
-    risk_signals = extract_risk_signals(combined_text, top_k=3)
-    risk_regions = find_risk_regions(combined_text, top_k=5)
-    scam_domains = find_scam_domains(combined_text)
-
-    if vision.used_gemini and not vision.error:
-        prob = vision.fraud_probability
-        if vision.risk_signals:
-            seen = {s.lower() for s in vision.risk_signals}
-            extra = [s for s in risk_signals if s.lower() not in seen]
-            risk_signals = (vision.risk_signals + extra)[:5]
-    else:
-        prob = 0.5
+    prob = vision.fraud_probability
+    risk_signals = list(vision.risk_signals[:5])
+    risk_regions = find_risk_regions(" ".join(vision.regions_mentioned), top_k=5)
+    scam_domains = find_scam_domains(" ".join(vision.domains_found))
 
     if scam_domains:
         prob = 1.0
@@ -115,8 +91,6 @@ def _analyze(image_paths: list[Path]) -> dict:
     )
 
     return {
-        "ocr_len": combined_len,
-        "ocr_preview": combined_text[:80],
         "fraud_prob": round(prob, 4),
         "risk_level": scores.ui_risk_level,
         "trust_score": scores.trust_score,
@@ -178,8 +152,6 @@ def main() -> int:
                 "posting_id": posting_id,
                 "label": labels.get(posting_id, ""),
                 "num_images": len(paths),
-                "ocr_len": 0,
-                "ocr_preview": "",
                 "fraud_prob": None,
                 "risk_level": "ERROR",
                 "trust_score": None,
@@ -252,7 +224,7 @@ def main() -> int:
         with out_path.open("w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=[
                 "posting_id", "label", "num_images", "fraud_prob", "risk_level",
-                "trust_score", "scam_domains", "risk_signals", "ocr_len", "ocr_preview", "message",
+                "trust_score", "scam_domains", "risk_signals", "message",
             ])
             writer.writeheader()
             for r in rows:
