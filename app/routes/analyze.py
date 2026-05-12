@@ -23,7 +23,7 @@ from app.ml.risk_regions import find_risk_regions
 from app.ml.scam_domains import find_scam_domains
 from app.services.gemini_service import GeminiVisionResult, analyze_image_with_gemini_vision, polish_with_gemini
 from app.services.scoring_service import PredictionScores, score_prediction
-from app.services.summary_builder import build_template_message
+from app.services.summary_builder import build_message_with_gemini_summary, build_template_message
 
 
 logger = logging.getLogger(__name__)
@@ -101,41 +101,34 @@ async def _run_analysis(
 
     scores: PredictionScores = score_prediction(fraud_prob, FRAUD_THRESHOLD)
 
-    # 메시지 생성: 템플릿 → polish_with_gemini
+    # 메시지 생성: Gemini summary_message 우선, 없으면 템플릿으로 fallback
+    # Gemini Vision 단일 호출에서 summary_message까지 반환하므로 polish 호출 불필요
     prompt_used: str | None = None
-    used_gemini = False
-    fallback_to_template = True
+    used_gemini = used_vision
+    fallback_to_template = False
     no_change = False
-    gemini_error: str | None = None
+    gemini_error: str | None = vision_error
 
-    template_message = build_template_message(
-        company_name=company_name,
+    polished = build_message_with_gemini_summary(
+        gemini_summary=vision_result.summary_message if used_vision else "",
         trust_score=scores.trust_score,
-        risk_score=scores.risk_score,
         ui_trust_label=scores.ui_trust_label,
-        has_signals=bool(risk_signals),
         travel_ban_regions=risk_regions,
         scam_domains=scam_domains,
     )
-    polished = template_message
-    try:
-        gemini_out = await asyncio.to_thread(
-            polish_with_gemini,
-            template_message=template_message,
+
+    if not polished:
+        # Gemini summary가 없거나 너무 짧을 때 템플릿으로 fallback
+        fallback_to_template = True
+        polished = build_template_message(
+            company_name=company_name,
             trust_score=scores.trust_score,
-            trust_label=scores.ui_trust_label,
-            fraud_probability=fraud_prob,
             risk_score=scores.risk_score,
-            risk_signals=risk_signals,
+            ui_trust_label=scores.ui_trust_label,
+            has_signals=bool(risk_signals),
+            travel_ban_regions=risk_regions,
+            scam_domains=scam_domains,
         )
-        prompt_used = gemini_out.prompt_used
-        polished = gemini_out.message
-        used_gemini = gemini_out.used_gemini
-        fallback_to_template = gemini_out.fallback_to_template
-        no_change = gemini_out.no_change
-        gemini_error = gemini_out.error
-    except Exception as e:  # noqa: BLE001
-        logger.exception("Gemini polish failed: %s", e)
 
     analysis_id = str(uuid4())
 
@@ -178,6 +171,7 @@ async def _run_analysis(
             "promptUsed": prompt_used,
             "geminiError": gemini_error,
             "riskRegionsMatched": risk_regions,
+            "geminiSummaryMessage": vision_result.summary_message if used_vision else None,
         }
 
     return resp

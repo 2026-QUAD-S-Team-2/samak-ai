@@ -78,6 +78,7 @@ class GeminiVisionResult:
     error: str | None
     domains_found: list[str] = field(default_factory=list)
     regions_mentioned: list[str] = field(default_factory=list)
+    summary_message: str = ""
 
 
 def _detect_mime_type(data: bytes) -> str:
@@ -107,13 +108,19 @@ def _build_vision_prompt() -> str:
         "[추가 추출 항목]\n"
         "- domains_found: 이미지에 보이는 모든 URL·도메인 주소 (예: example.com, t.me/xxx). 없으면 빈 배열.\n"
         "- regions_mentioned: 이미지에 언급된 모든 국가·지역명을 영문 소문자로 추출 (예: myanmar, cambodia, myawaddy). 없으면 빈 배열.\n\n"
+        "[summary_message 작성 규칙]\n"
+        "- 구직자에게 전달하는 자연스러운 한국어 문장 1~2개.\n"
+        "- 반드시 한국어로만 작성. 숫자·퍼센트·점수는 절대 포함 금지.\n"
+        "- 탐지된 주요 위험 신호를 구체적으로 언급 (없으면 '특이한 사기 패턴은 발견되지 않았습니다' 수준으로).\n"
+        "- 구직자에게 권고 행동을 간략히 포함할 것.\n\n"
         "응답 형식 (JSON만, 마크다운 코드블록 없이):\n"
         "{\n"
         '  "fraud_probability": <0.0~1.0 사이 소수>,\n'
         '  "risk_signals": ["신호1", "신호2"],\n'
         '  "reasoning": "<판단 근거 2~3문장, 한국어>",\n'
         '  "domains_found": ["domain1.com"],\n'
-        '  "regions_mentioned": ["country1", "region1"]\n'
+        '  "regions_mentioned": ["country1", "region1"],\n'
+        '  "summary_message": "<구직자 대상 자연스러운 한국어 요약. 숫자/% 제외.>"\n'
         "}"
     )
 
@@ -156,6 +163,7 @@ def analyze_image_with_gemini_vision(image_bytes: bytes) -> GeminiVisionResult:
         reasoning = str(data.get("reasoning", "")).strip()
         domains_found = [str(d) for d in data.get("domains_found", [])][:10]
         regions_mentioned = [str(r).lower() for r in data.get("regions_mentioned", [])][:10]
+        summary_message = str(data.get("summary_message", "")).strip()
 
         return GeminiVisionResult(
             fraud_probability=fraud_prob,
@@ -165,6 +173,7 @@ def analyze_image_with_gemini_vision(image_bytes: bytes) -> GeminiVisionResult:
             error=None,
             domains_found=domains_found,
             regions_mentioned=regions_mentioned,
+            summary_message=summary_message,
         )
     except Exception as e:  # noqa: BLE001
         return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=True, error=str(e))

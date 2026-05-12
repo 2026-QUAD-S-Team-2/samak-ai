@@ -54,6 +54,48 @@ def build_template_message(
     return " ".join(parts)
 
 
+def build_message_with_gemini_summary(
+    *,
+    gemini_summary: str,
+    trust_score: int,
+    ui_trust_label: str,
+    travel_ban_regions: list[str] | None = None,
+    scam_domains: list[str] | None = None,
+) -> str:
+    """Gemini가 한 번에 반환한 summary_message에 점수·룰 정보를 결합합니다.
+
+    Gemini summary는 숫자 없이 자연어만 담고, 점수 문장은 템플릿으로 주입합니다.
+    """
+    # Gemini summary가 없거나 너무 짧으면 None 반환 → 호출자가 fallback 처리
+    summary = (gemini_summary or "").strip()
+    if len(summary) < 10:
+        return ""
+
+    parts: list[str] = [
+        f"AI 분석 결과, 해당 공고는 {ui_trust_label} 단계로 분류되었습니다.",
+        f"신뢰도는 약 {trust_score}%로 분석되었습니다.",
+        summary,
+    ]
+
+    domains = [d.strip() for d in (scam_domains or []) if d and d.strip()]
+    if domains:
+        shown = ", ".join(domains[:3])
+        parts.append(
+            f"경고: 해당 공고에서 알려진 사기 도메인({shown})이 발견되었습니다. "
+            "이 도메인은 구직 사기에 활용되는 가짜 도메인으로 알려져 있으니 절대 응하지 마세요."
+        )
+
+    regions = [r.strip() for r in (travel_ban_regions or []) if r and r.strip()]
+    if regions:
+        shown = ", ".join(regions[:5])
+        parts.append(
+            f"또한 공고 텍스트에서 대한민국 외교부가 여행금지 지역으로 지정한 국가/지역({shown})이(가) 언급되었습니다. "
+            "해당 지역과 관련된 활동은 법적·안전상의 위험이 있을 수 있으므로, 관련 정보를 충분히 확인하시기 바랍니다."
+        )
+
+    return " ".join(parts)
+
+
 def validate_polished_message(template: str, candidate: str) -> bool:
     """
     Gemini 결과가 형식을 깨거나 숫자를 바꾸면 fallback 해야 합니다.
