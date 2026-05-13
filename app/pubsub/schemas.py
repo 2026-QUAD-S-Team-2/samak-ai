@@ -8,6 +8,7 @@ class AnalysisRequestMessage(BaseModel):
     imageUrls: list[str]
     countryCode: str
     salaryText: str | None = None
+    companyName: str | None = None
     debug: bool = False
 
 
@@ -19,3 +20,4 @@ class AnalysisResultMessage(BaseModel):
     riskSignals: list[str]
     travelBanRegionsMatched: list[str]
     message: str | None
+    location: dict | None = None

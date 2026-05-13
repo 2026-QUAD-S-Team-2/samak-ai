@@ -41,7 +41,10 @@ async def _process_message(message: pubsub_v1.subscriber.message.Message) -> Non
                     "travelBanRegionsMatched": [],
                     "analysisSummary": {"score": None, "label": None, "message": str(e.detail)},
                 }
-            return await _run_analysis(bts, {}, req.debug)
+            meta: dict[str, object] = {}
+            if req.companyName:
+                meta["companyName"] = req.companyName
+            return await _run_analysis(bts, meta, req.debug)
 
         if len(req.imageUrls) >= 5:
             raw_results = list(await asyncio.gather(*[_fetch_and_analyze(u) for u in req.imageUrls]))
@@ -58,6 +61,7 @@ async def _process_message(message: pubsub_v1.subscriber.message.Message) -> Non
             riskSignals=best["explanation"]["riskSignals"],
             travelBanRegionsMatched=best.get("travelBanRegionsMatched", []),
             message=best["analysisSummary"]["message"],
+            location=best.get("location"),
         )
         await publish_result(result)
         message.ack()

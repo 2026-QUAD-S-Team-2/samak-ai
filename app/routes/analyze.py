@@ -23,6 +23,7 @@ from app.ml.risk_regions import find_risk_regions
 from app.ml.scam_domains import find_scam_domains
 from app.services.gemini_service import GeminiVisionResult, analyze_image_with_gemini_vision, polish_with_gemini
 from app.services.scoring_service import PredictionScores, score_prediction
+from app.services.maps_service import lookup_location
 from app.services.summary_builder import build_message_with_gemini_summary, build_template_message
 
 
@@ -99,6 +100,13 @@ async def _run_analysis(
     if scam_domains:
         fraud_prob = 1.0
 
+    # Google Maps 위치 조회 (GOOGLE_MAPS_API_KEY 없으면 (None, []) 반환)
+    location_result, maps_signals = await lookup_location(
+        company_name=company_name,
+        regions_mentioned=list(vision_result.regions_mentioned) if used_vision else [],
+    )
+    risk_signals.extend(maps_signals)
+
     scores: PredictionScores = score_prediction(fraud_prob, FRAUD_THRESHOLD)
 
     # 메시지 생성: Gemini summary_message 우선, 없으면 템플릿으로 fallback
@@ -130,6 +138,11 @@ async def _run_analysis(
             scam_domains=scam_domains,
         )
 
+    # Maps 신호가 있으면 최종 메시지 뒤에 추가
+    if maps_signals:
+        maps_note = " ".join(maps_signals)
+        polished = f"{polished}\n{maps_note}" if polished else maps_note
+
     analysis_id = str(uuid4())
 
     resp = {
@@ -158,6 +171,21 @@ async def _run_analysis(
             "label": scores.ui_trust_label,
             "message": polished,
         },
+        "location": (
+            {
+                "rawText": location_result.raw_text,
+                "lat": location_result.lat,
+                "lng": location_result.lng,
+                "adminLevel": location_result.admin_level,
+                "zoom": location_result.zoom,
+                "status": location_result.status,
+                "viewportNe": {"lat": location_result.viewport_ne.lat, "lng": location_result.viewport_ne.lng}
+                              if location_result.viewport_ne else None,
+                "viewportSw": {"lat": location_result.viewport_sw.lat, "lng": location_result.viewport_sw.lng}
+                              if location_result.viewport_sw else None,
+            }
+            if location_result is not None else None
+        ),
     }
 
     if debug:

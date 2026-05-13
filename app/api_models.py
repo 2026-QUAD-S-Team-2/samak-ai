@@ -92,6 +92,22 @@ class AnalyzeImageRequest(BaseModel):
     )
 
 
+class LocationLatLng(BaseModel):
+    lat: float
+    lng: float
+
+
+class LocationData(BaseModel):
+    rawText: str = Field(description="검색에 사용된 회사명 또는 지역명")
+    lat: float
+    lng: float
+    adminLevel: str | None = None
+    zoom: int = Field(description="Flutter 지도 초기 줌 레벨. 회사 핀=14, 지역 bounds=8~12")
+    status: str = Field(description='"company" | "region"')
+    viewportNe: LocationLatLng | None = None
+    viewportSw: LocationLatLng | None = None
+
+
 class AnalyzeImageResponse(BaseModel):
     analysisId: UUID = Field(
         ...,
@@ -121,6 +137,10 @@ class AnalyzeImageResponse(BaseModel):
         examples=["제안된 시급(5000)이(가) KR의 법정 최저임금(10320)보다 낮습니다. 공고의 급여/근로조건을 다시 확인해 주세요."],
     )
     message: str
+    location: LocationData | None = Field(
+        default=None,
+        description="지도 표시용 위치 정보. GOOGLE_MAPS_API_KEY 미설정 또는 조회 실패 시 null.",
+    )
 
 
 class AnalyzeImagesResponse(BaseModel):

@@ -29,6 +29,14 @@
 └───────────────────────────────────────────────────┘
                    │
                    ▼
+┌───────────────────────────────────────────────────┐
+│  Google Maps 위치 조회 (GOOGLE_MAPS_API_KEY 설정 시)  │
+│  companyName → Places API                          │
+│    미검색 시 → Geocoding API (regions_mentioned)    │
+│  → location { lat, lng, viewport, status }         │
+└───────────────────────────────────────────────────┘
+                   │
+                   ▼
         ┌─────────────────────┐
         │  사기 확률 결정        │
         │  Gemini Vision 100%  │
@@ -88,6 +96,15 @@ Gemini가 추출한 `domains_found`를 알려진 사기 도메인 목록과 매�
 ### 4. Gemini 메시지 polish
 
 분석 결과를 바탕으로 생성된 템플릿 메시지를 Gemini가 자연스러운 한국어로 다듬습니다.
+
+### 5. Google Maps 위치 조회
+
+`GOOGLE_MAPS_API_KEY` 설정 시 분석 결과에 `location` 객체가 추가됩니다.
+
+- **회사명 있음** → Places API로 검색. 미검색 시 위험 신호 추가("Google Maps에서 회사명이 검색되지 않습니다."), 위치 불일치 시 별도 신호 추가
+- **회사명 없거나 검색 실패** → Geocoding API로 `regions_mentioned` 첫 번째 지역 검색 → viewport(bounds) 반환
+- Flutter는 `status: "company"`면 마커 핀, `status: "region"`이면 `fitBounds`로 지역 영역 렌더링
+- API 키 미설정 시 `location: null`로 graceful degradation
 
 ### 7. 병렬 이미지 처리 (asyncio.gather)
 
@@ -177,6 +194,16 @@ countryCode   : SG
     "score": 17,
     "label": "Danger",
     "message": "해당 공고는 선불 비용을 요구하고 있어 사기 패턴과 일치합니다. 지원 전 업체 정보를 반드시 검증하시기 바랍니다."
+  },
+  "location": {
+    "rawText": "OO회사",
+    "lat": 37.5665,
+    "lng": 126.9780,
+    "adminLevel": "대한민국",
+    "zoom": 14,
+    "status": "company",
+    "viewportNe": null,
+    "viewportSw": null
   }
 }
 ```
@@ -196,6 +223,7 @@ countryCode   : SG
 |------|--------|------|
 | `GEMINI_API_KEY` | (없음) | Google Gemini API 키. 없으면 fraud_probability 0.5로 처리 |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | 사용할 Gemini 모델 |
+| `GOOGLE_MAPS_API_KEY` | (없음) | Google Maps API 키 (Places API + Geocoding API). 없으면 location 조회 비활성화 |
 | `LOG_LEVEL` | `INFO` | Python 로깅 레벨 |
 | `GCP_PROJECT_ID` | (없음) | Google Cloud 프로젝트 ID |
 | `PUBSUB_REQUEST_SUBSCRIPTION` | `analysis-request-subscription` | 분석 요청을 수신할 Pub/Sub 구독 이름 |
@@ -306,6 +334,10 @@ docker compose down
 ```
 app/
 ├── main.py                  # FastAPI 진입점, lifespan 관리
+├── api_models.py            # Swagger(OpenAPI) 문서용 응답 스키마
+├── backend_push_config.py   # 백엔드 Push 설정
+├── env.py                   # .env 로딩 유틸 (로컬 개발 편의)
+├── integrations/            # 외부 서비스 연동 모듈
 ├── pubsub/                  # Google Cloud Pub/Sub 연동
 │   ├── consumer.py          # Streaming Pull 구독, 메시지 처리
 │   ├── producer.py          # 분석 결과 발행
@@ -320,8 +352,26 @@ app/
 │   ├── risk_regions.py      # 여행금지 지역 탐지
 │   ├── risk_regions.txt     # 여행금지 지역 목록
 │   └── scam_domains.py      # 알려진 사기 도메인 목록
+├── schemas/
+│   └── wage.py              # 최저임금 관련 Pydantic 스키마
 └── services/
     ├── gemini_service.py    # Gemini Vision 분석, 메시지 polish
+    ├── maps_service.py      # Google Maps 위치 조회 (Places API + Geocoding API)
     ├── scoring_service.py   # 확률 → 점수/레벨 변환
-    └── summary_builder.py   # 템플릿 메시지 생성
+    ├── summary_builder.py   # 템플릿 메시지 생성
+    ├── backend_push.py      # 백엔드로 분석 결과 POST 전송
+    ├── min_wage_store.py    # 국가별 최저임금 데이터 로딩/조회
+    └── wage_service.py      # 임금 경고 비즈니스 로직
+resources/
+└── min_wage_hourly.json     # 국가별 최저 시급 데이터
+scripts/
+├── batch_test.py            # 배치 테스트 스크립트
+├── local_test.py            # 로컬 테스트 스크립트
+└── recruiting_examples/     # 테스트용 채용 공고 이미지 샘플
+tests/
+├── conftest.py
+├── test_api.py
+├── test_min_wage_store.py
+├── test_preprocess_policy.py
+└── test_wage_warning_api.py
 ```
