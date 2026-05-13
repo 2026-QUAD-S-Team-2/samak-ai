@@ -8,13 +8,13 @@ from __future__ import annotations
 
 사용 예:
   # labels.json이 있는 디렉토리 (정확도 자동 계산)
-  python3 scripts/batch_test.py --dir ./scripts/recruiting_examples
+  python3 scripts/batch_test.py --dir ./scripts/golden_datasets
 
   # 라벨 없이 결과만 확인
   python3 scripts/batch_test.py --dir ./test_images/
 
   # CSV로 저장
-  python3 scripts/batch_test.py --dir ./scripts/recruiting_examples --out results.csv
+  python3 scripts/batch_test.py --dir ./scripts/golden_datasets --out results.csv
 """
 
 import argparse

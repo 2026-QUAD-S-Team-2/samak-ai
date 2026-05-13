@@ -367,7 +367,7 @@ resources/
 scripts/
 ├── batch_test.py            # 배치 테스트 스크립트
 ├── local_test.py            # 로컬 테스트 스크립트
-└── recruiting_examples/     # 테스트용 채용 공고 이미지 샘플
+└── golden_datasets/         # 테스트용 채용 공고 이미지 샘플
 tests/
 ├── conftest.py
 ├── test_api.py
