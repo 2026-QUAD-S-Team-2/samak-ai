@@ -77,6 +77,7 @@ async def _run_analysis(
         analysis_type = "JOB_POST"
 
     company_name = _get_str(meta, "companyName")
+    country_code = _get_str(meta, "countryCode")
 
     fraud_prob: float = 0.5
     risk_signals: list[str] = []
@@ -104,6 +105,7 @@ async def _run_analysis(
     location_result, maps_signals = await lookup_location(
         company_name=company_name,
         regions_mentioned=list(vision_result.regions_mentioned) if used_vision else [],
+        country_code=country_code,
     )
     risk_signals.extend(maps_signals)
 

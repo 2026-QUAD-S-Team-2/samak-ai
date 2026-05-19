@@ -44,6 +44,8 @@ async def _process_message(message: pubsub_v1.subscriber.message.Message) -> Non
             meta: dict[str, object] = {}
             if req.companyName:
                 meta["companyName"] = req.companyName
+            if req.countryCode:
+                meta["countryCode"] = req.countryCode
             return await _run_analysis(bts, meta, req.debug)
 
         if len(req.imageUrls) >= 5:

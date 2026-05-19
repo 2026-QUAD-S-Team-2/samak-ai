@@ -68,11 +68,15 @@ async def _search_places(
     client: httpx.AsyncClient,
     company_name: str,
     api_key: str,
+    country_code: str | None = None,
 ) -> dict | None:
     try:
+        body: dict = {"textQuery": company_name, "languageCode": "ko"}
+        if country_code:
+            body["regionCode"] = country_code.upper()
         resp = await client.post(
             PLACES_URL,
-            json={"textQuery": company_name, "languageCode": "ko"},
+            json=body,
             headers={
                 "X-Goog-Api-Key": api_key,
                 "X-Goog-FieldMask": "places.id,places.displayName,places.location,places.addressComponents,places.formattedAddress",
@@ -158,6 +162,7 @@ async def lookup_location(
     *,
     company_name: str | None,
     regions_mentioned: list[str],
+    country_code: str | None = None,
 ) -> tuple[LocationResult | None, list[str]]:
     """
     회사명 또는 언급 지역을 Google Maps로 조회한다.
@@ -177,7 +182,7 @@ async def lookup_location(
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             if company_name:
-                places_data = await _search_places(client, company_name, api_key)
+                places_data = await _search_places(client, company_name, api_key, country_code)
 
                 if places_data is None:
                     signals.append(SIGNAL_NOT_FOUND)
