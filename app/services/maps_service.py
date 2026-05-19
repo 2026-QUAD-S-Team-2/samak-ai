@@ -15,7 +15,7 @@ PLACES_URL = "https://places.googleapis.com/v1/places:searchText"
 GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 
 SIGNAL_NOT_FOUND = "Google Maps에서 회사명이 검색되지 않습니다."
-SIGNAL_MISMATCH = "구글 지도에서 검색한 회사 위치와 공고 표기 위치가 일치하지 않습니다."
+SIGNAL_MISMATCH = "Google Maps에서 검색한 회사 위치와 공고 표기 위치가 일치하지 않습니다."
 
 MISMATCH_KM_THRESHOLD = 100.0
 
@@ -62,6 +62,11 @@ def _zoom_for_viewport(ne: LatLng, sw: LatLng) -> int:
     if lat_span < 2.0:
         return 10
     return 8
+
+
+def _is_name_match(query: str, display_name: str) -> bool:
+    q, d = query.strip().lower(), display_name.strip().lower()
+    return bool(q and d and (q in d or d in q))
 
 
 async def _search_places(
@@ -185,6 +190,8 @@ async def lookup_location(
                 places_data = await _search_places(client, company_name, api_key, country_code)
 
                 if places_data is None:
+                    signals.append(SIGNAL_NOT_FOUND)
+                elif not _is_name_match(company_name, places_data.get("displayName", {}).get("text", "")):
                     signals.append(SIGNAL_NOT_FOUND)
                 else:
                     loc = places_data.get("location", {})
