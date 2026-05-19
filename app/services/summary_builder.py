@@ -18,39 +18,44 @@ def build_template_message(
     has_signals: bool | None = None,
     travel_ban_regions: list[str] | None = None,
     scam_domains: list[str] | None = None,
+    risk_quotes: list[str] | None = None,
 ) -> str:
     # 요구사항: 자연어는 앞으로 무조건 한국어로 고정 (언어 감지와 무관)
     # NOTE: 회사명은 UI 레이아웃/정책이 정리되기 전까지 메시지에 넣지 않습니다.
     _ = company_name
     _ = risk_score
 
-    s1 = f"AI 분석 결과, 해당 공고는 {ui_trust_label} 단계로 분류되었습니다."
-    s2 = f"신뢰도는 약 {trust_score}%로 분석되었습니다."
+    s1 = f"AI 분석 결과, 해당 공고는 **{ui_trust_label}** 단계로 분류되었습니다."
+    s2 = f"신뢰도는 약 **{trust_score}%** 로 분석되었습니다."
     parts: list[str] = [s1, s2]
 
     domains = [d.strip() for d in (scam_domains or []) if d and d.strip()]
     if domains:
-        shown = ", ".join(domains[:3])
-        parts.append(f"경고: 해당 공고에서 알려진 사기 도메인({shown})이 발견되었습니다. 이 도메인은 구직 사기에 활용되는 가짜 도메인으로 알려져 있으니 절대 응하지 마세요.")
+        shown = ", ".join(f"**{d}**" for d in domains[:3])
+        parts.append(f"경고: 해당 공고에서 알려진 사기 도메인 {shown} 이 발견되었습니다. 이 도메인은 구직 사기에 활용되는 가짜 도메인으로 알려져 있으니 절대 응하지 마세요.")
 
     signals = [s.strip() for s in (risk_signals or []) if s and s.strip()]
     if not signals and has_signals:
-        # 신호의 구체 문자열을 알 수 없을 때(구버전 호출자)
         parts.append("특히 사기 공고에서 자주 사용되는 표현이 포함되어 있습니다.")
     elif signals:
-        shown = ", ".join([f"‘{s}’" for s in signals[:3]])
+        shown = ", ".join(f"**{s}**" for s in signals[:3])
         parts.append(f"특히 {shown} 등 사기 공고에서 자주 사용되는 표현이 포함되어 있습니다.")
     else:
         parts.append("뚜렷한 사기 공고 패턴 표현은 탐지되지 않았습니다.")
 
-    # 위험 신호(사기 패턴) 문장 뒤에 여행금지 문장을 붙이고, 마지막에는 안내 문장을 고정
     regions = [r.strip() for r in (travel_ban_regions or []) if r and r.strip()]
     if regions:
-        shown = ", ".join(regions[:5])
+        shown = ", ".join(f"**{r}**" for r in regions[:5])
         parts.append(
-            f"또한 공고 텍스트에서 대한민국 외교부가 여행금지 지역으로 지정한 국가/지역({shown})이(가) 언급되었습니다. "
+            f"또한 공고 텍스트에서 대한민국 외교부가 여행금지 지역으로 지정한 국가/지역 {shown} 이(가) 언급되었습니다. "
             "해당 지역과 관련된 활동은 법적·안전상의 위험이 있을 수 있으므로, 관련 정보를 충분히 확인하시기 바랍니다."
         )
+
+    quotes = [q.strip() for q in (risk_quotes or []) if q and q.strip()]
+    if quotes:
+        shown = ", ".join(f'"{q}"' for q in quotes)
+        parts.append(f"공고에서 감지된 의심 문구: {shown}")
+
     return " ".join(parts)
 
 
@@ -61,6 +66,7 @@ def build_message_with_gemini_summary(
     ui_trust_label: str,
     travel_ban_regions: list[str] | None = None,
     scam_domains: list[str] | None = None,
+    risk_quotes: list[str] | None = None,
 ) -> str:
     """Gemini가 한 번에 반환한 summary_message에 점수·룰 정보를 결합합니다.
 
@@ -72,26 +78,31 @@ def build_message_with_gemini_summary(
         return ""
 
     parts: list[str] = [
-        f"AI 분석 결과, 해당 공고는 {ui_trust_label} 단계로 분류되었습니다.",
-        f"신뢰도는 약 {trust_score}%로 분석되었습니다.",
+        f"AI 분석 결과, 해당 공고는 **{ui_trust_label}** 단계로 분류되었습니다.",
+        f"신뢰도는 약 **{trust_score}%** 로 분석되었습니다.",
         summary,
     ]
 
     domains = [d.strip() for d in (scam_domains or []) if d and d.strip()]
     if domains:
-        shown = ", ".join(domains[:3])
+        shown = ", ".join(f"**{d}**" for d in domains[:3])
         parts.append(
-            f"경고: 해당 공고에서 알려진 사기 도메인({shown})이 발견되었습니다. "
+            f"경고: 해당 공고에서 알려진 사기 도메인 {shown} 이 발견되었습니다. "
             "이 도메인은 구직 사기에 활용되는 가짜 도메인으로 알려져 있으니 절대 응하지 마세요."
         )
 
     regions = [r.strip() for r in (travel_ban_regions or []) if r and r.strip()]
     if regions:
-        shown = ", ".join(regions[:5])
+        shown = ", ".join(f"**{r}**" for r in regions[:5])
         parts.append(
-            f"또한 공고 텍스트에서 대한민국 외교부가 여행금지 지역으로 지정한 국가/지역({shown})이(가) 언급되었습니다. "
+            f"또한 공고 텍스트에서 대한민국 외교부가 여행금지 지역으로 지정한 국가/지역 {shown} 이(가) 언급되었습니다. "
             "해당 지역과 관련된 활동은 법적·안전상의 위험이 있을 수 있으므로, 관련 정보를 충분히 확인하시기 바랍니다."
         )
+
+    quotes = [q.strip() for q in (risk_quotes or []) if q and q.strip()]
+    if quotes:
+        shown = ", ".join(f'"{q}"' for q in quotes)
+        parts.append(f"공고에서 감지된 의심 문구: {shown}")
 
     return " ".join(parts)
 

@@ -79,6 +79,7 @@ class GeminiVisionResult:
     domains_found: list[str] = field(default_factory=list)
     regions_mentioned: list[str] = field(default_factory=list)
     summary_message: str = ""
+    risk_quotes: list[str] = field(default_factory=list)
 
 
 def _detect_mime_type(data: bytes) -> str:
@@ -107,7 +108,8 @@ def _build_vision_prompt() -> str:
         "- 레이아웃이 조잡하거나 로고가 위조처럼 보임\n\n"
         "[추가 추출 항목]\n"
         "- domains_found: 이미지에 보이는 모든 URL·도메인 주소 (예: example.com, t.me/xxx). 없으면 빈 배열.\n"
-        "- regions_mentioned: 이미지에 언급된 모든 국가·지역명을 영문 소문자로 추출 (예: myanmar, cambodia, myawaddy). 없으면 빈 배열.\n\n"
+        "- regions_mentioned: 이미지에 언급된 모든 국가·지역명을 영문 소문자로 추출 (예: myanmar, cambodia, myawaddy). 없으면 빈 배열.\n"
+        "- risk_quotes: 공고 이미지에서 사기 신호와 직접 관련된 의심 문구를 원문 그대로 최대 3개 추출. 없으면 빈 배열. 문구를 지어내지 말고 이미지에 실제로 보이는 텍스트만 추출할 것.\n\n"
         "[summary_message 작성 규칙]\n"
         "- 구직자에게 전달하는 자연스러운 한국어 문장 1~2개.\n"
         "- 반드시 한국어로만 작성. 숫자·퍼센트·점수는 절대 포함 금지.\n"
@@ -120,6 +122,7 @@ def _build_vision_prompt() -> str:
         '  "reasoning": "<판단 근거 2~3문장, 한국어>",\n'
         '  "domains_found": ["domain1.com"],\n'
         '  "regions_mentioned": ["country1", "region1"],\n'
+        '  "risk_quotes": ["이미지에서 그대로 발췌한 의심 문구1", "의심 문구2"],\n'
         '  "summary_message": "<구직자 대상 자연스러운 한국어 요약. 숫자/% 제외.>"\n'
         "}"
     )
@@ -163,6 +166,7 @@ def analyze_image_with_gemini_vision(image_bytes: bytes) -> GeminiVisionResult:
         reasoning = str(data.get("reasoning", "")).strip()
         domains_found = [str(d) for d in data.get("domains_found", [])][:10]
         regions_mentioned = [str(r).lower() for r in data.get("regions_mentioned", [])][:10]
+        risk_quotes = [str(q).strip() for q in data.get("risk_quotes", []) if str(q).strip()][:3]
         summary_message = str(data.get("summary_message", "")).strip()
 
         return GeminiVisionResult(
@@ -174,6 +178,7 @@ def analyze_image_with_gemini_vision(image_bytes: bytes) -> GeminiVisionResult:
             domains_found=domains_found,
             regions_mentioned=regions_mentioned,
             summary_message=summary_message,
+            risk_quotes=risk_quotes,
         )
     except Exception as e:  # noqa: BLE001
         return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=True, error=str(e))

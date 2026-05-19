@@ -119,12 +119,15 @@ async def _run_analysis(
     no_change = False
     gemini_error: str | None = vision_error
 
+    risk_quotes = list(vision_result.risk_quotes) if used_vision else []
+
     polished = build_message_with_gemini_summary(
         gemini_summary=vision_result.summary_message if used_vision else "",
         trust_score=scores.trust_score,
         ui_trust_label=scores.ui_trust_label,
         travel_ban_regions=risk_regions,
         scam_domains=scam_domains,
+        risk_quotes=risk_quotes,
     )
 
     if not polished:
@@ -138,6 +141,7 @@ async def _run_analysis(
             has_signals=bool(risk_signals),
             travel_ban_regions=risk_regions,
             scam_domains=scam_domains,
+            risk_quotes=risk_quotes,
         )
 
     # Maps 신호가 있으면 최종 메시지 뒤에 추가
