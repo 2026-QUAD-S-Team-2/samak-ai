@@ -9,7 +9,6 @@ FastAPI 엔트리포인트.
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from pathlib import Path
 
 import asyncio
 import logging
@@ -18,7 +17,6 @@ import os
 from app.env import load_dotenv_once
 from app.pubsub.consumer import start_consumer
 from app.routes.analyze import router as analyze_router
-from app.routes.wage_warning import router as wage_warning_router
 
 logger = logging.getLogger(__name__)
 
@@ -47,22 +45,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Samak AI - Image Analyze MVP", version="0.1.0", lifespan=lifespan)
 app.include_router(analyze_router)
-app.include_router(wage_warning_router)
 
 
 @app.get("/healthz")
 def healthz() -> dict:
-    checks: dict[str, str] = {}
-
-    min_wage_env = os.environ.get("MIN_WAGE_DATA_PATH", "resources/min_wage_hourly.json")
-    min_wage_p = Path(min_wage_env) if Path(min_wage_env).is_absolute() else Path(__file__).resolve().parent.parent / min_wage_env
-    checks["minWageData"] = "ok" if min_wage_p.exists() else "missing"
-
     from app.pubsub.pubsub_config import GCP_PROJECT_ID
-    checks["pubsub"] = "configured" if GCP_PROJECT_ID else "not_configured"
-
-    status = "ok" if all(v in ("ok", "configured") for v in checks.values()) else "degraded"
-    return {"status": status, "checks": checks}
+    pubsub_status = "configured" if GCP_PROJECT_ID else "not_configured"
+    status = "ok" if pubsub_status == "configured" else "degraded"
+    return {"status": status, "checks": {"pubsub": pubsub_status}}
 
 
 # 백엔드/인프라에서 `/health`로 확인하는 경우도 많아서 alias를 제공합니다.
