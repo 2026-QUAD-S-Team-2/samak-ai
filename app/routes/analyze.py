@@ -19,8 +19,8 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.ml.risk_regions import find_risk_regions
-from app.ml.scam_domains import find_scam_domains
+from app.signals.risk_regions import find_risk_regions
+from app.signals.scam_domains import find_scam_domains
 from app.services.gemini_service import GeminiVisionResult, analyze_image_with_gemini_vision, polish_with_gemini
 from app.services.scoring_service import PredictionScores, score_prediction
 from app.services.maps_service import lookup_location

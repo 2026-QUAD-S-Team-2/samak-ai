@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 여행금지(외교부) 국가/지역 탐지 유틸.
 
-- 규칙 파일: app/ml/risk_regions.txt (한 줄에 한 항목)
+- 규칙 파일: app/signals/risk_regions.txt (한 줄에 한 항목)
 - 매칭은 inputCleaned(소문자/공백 정리된 텍스트) 기준으로 수행하는 것을 권장
 - false positive를 줄이기 위해, 영문 단어는 word-boundary 기반으로 매칭
 """
@@ -133,7 +133,7 @@ _ISO2_TO_RISK_REGION_KEY: dict[str, str] = {
 
 def match_risk_regions_by_country_code(country_code: str) -> list[str]:
     """
-    요청 countryCode(ISO 3166-1 alpha-2)가 위험 지역 목록(app/ml/risk_regions.txt)에 대응되면
+    요청 countryCode(ISO 3166-1 alpha-2)가 위험 지역 목록(app/signals/risk_regions.txt)에 대응되면
     해당 display(한국어) 문자열을 반환합니다.
     """
     code = (country_code or "").strip().upper()

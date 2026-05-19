@@ -4,7 +4,7 @@ from __future__ import annotations
 사기 패턴(위험 신호) 규칙 기반 탐지.
 
 요구사항:
-- 패턴은 외부 파일(app/ml/risk_patterns.txt)로 분리
+- 패턴은 외부 파일(app/signals/risk_patterns.txt)로 분리
 - 영어/한국어 혼합 커버
 - 정규식 기반(case-insensitive)
 - 반환은 "매칭된 표현" (substring) 목록
