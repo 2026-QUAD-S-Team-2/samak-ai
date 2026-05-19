@@ -162,8 +162,6 @@ def validate_polished_message(template: str, candidate: str) -> bool:
         "신고",
         "수사",
         "경찰",
-        "wage",
-        "wageindicator",
         "확정",
         "100%",
     ]
