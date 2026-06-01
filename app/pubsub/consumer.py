@@ -60,6 +60,7 @@ async def _process_message(message: pubsub_v1.subscriber.message.Message) -> Non
             fraudProbability=best["mlPrediction"]["fraudProbability"],
             riskScore=best["mlPrediction"]["riskScore"],
             riskLevel=best["mlPrediction"]["riskLevel"],
+            trustScore=best["ui"]["trustScore"],
             riskSignals=best["explanation"]["riskSignals"],
             travelBanRegionsMatched=best.get("travelBanRegionsMatched", []),
             message=best["analysisSummary"]["message"],

@@ -17,6 +17,7 @@ class AnalysisResultMessage(BaseModel):
     fraudProbability: float | None
     riskScore: int | None
     riskLevel: str | None
+    trustScore: int | None = None
     riskSignals: list[str]
     travelBanRegionsMatched: list[str]
     message: str | None

@@ -123,8 +123,6 @@ async def _run_analysis(
 
     polished = build_message_with_gemini_summary(
         gemini_summary=vision_result.summary_message if used_vision else "",
-        trust_score=scores.trust_score,
-        ui_trust_label=scores.ui_trust_label,
         travel_ban_regions=risk_regions,
         scam_domains=scam_domains,
         risk_quotes=risk_quotes,
@@ -135,9 +133,7 @@ async def _run_analysis(
         fallback_to_template = True
         polished = build_template_message(
             company_name=company_name,
-            trust_score=scores.trust_score,
             risk_score=scores.risk_score,
-            ui_trust_label=scores.ui_trust_label,
             has_signals=bool(risk_signals),
             travel_ban_regions=risk_regions,
             scam_domains=scam_domains,

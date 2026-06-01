@@ -10,9 +10,7 @@ import re
 def build_template_message(
     *,
     company_name: str | None,
-    trust_score: int,
     risk_score: int,
-    ui_trust_label: str,
     risk_signals: list[str] | None = None,
     # backward compatibility: older callers only tell whether signals exist
     has_signals: bool | None = None,
@@ -25,9 +23,7 @@ def build_template_message(
     _ = company_name
     _ = risk_score
 
-    s1 = f"AI 분석 결과, 해당 공고는 **{ui_trust_label}** 단계로 분류되었습니다."
-    s2 = f"신뢰도는 약 **{trust_score}%** 로 분석되었습니다."
-    parts: list[str] = [s1, s2]
+    parts: list[str] = []
 
     domains = [d.strip() for d in (scam_domains or []) if d and d.strip()]
     if domains:
@@ -62,8 +58,6 @@ def build_template_message(
 def build_message_with_gemini_summary(
     *,
     gemini_summary: str,
-    trust_score: int,
-    ui_trust_label: str,
     travel_ban_regions: list[str] | None = None,
     scam_domains: list[str] | None = None,
     risk_quotes: list[str] | None = None,
@@ -77,11 +71,7 @@ def build_message_with_gemini_summary(
     if len(summary) < 10:
         return ""
 
-    parts: list[str] = [
-        f"AI 분석 결과, 해당 공고는 **{ui_trust_label}** 단계로 분류되었습니다.",
-        f"신뢰도는 약 **{trust_score}%** 로 분석되었습니다.",
-        summary,
-    ]
+    parts: list[str] = [summary]
 
     domains = [d.strip() for d in (scam_domains or []) if d and d.strip()]
     if domains:

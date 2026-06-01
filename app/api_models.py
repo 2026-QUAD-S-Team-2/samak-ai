@@ -94,6 +94,7 @@ class AnalyzeImageResponse(BaseModel):
     )
     riskScore: int | None = Field(None, ge=0, le=100)
     riskLevel: RiskLevel
+    trustScore: int | None = Field(None, ge=0, le=100, description="신뢰도 수치(0~100). 100 - riskScore.")
     riskSignals: list[str] = Field(default_factory=list, max_length=3)
     travelBanRegionsMatched: list[str] = Field(default_factory=list)
     message: str
