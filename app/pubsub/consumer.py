@@ -39,7 +39,9 @@ async def _process_message(message: pubsub_v1.subscriber.message.Message) -> Non
                     "mlPrediction": {"fraudProbability": None, "riskScore": None, "riskLevel": None, "modelVersion": "gemini-rule-v1.0.0", "thresholdUsed": None},
                     "explanation": {"riskSignals": []},
                     "travelBanRegionsMatched": [],
+                    "ui": {"riskLevel": None, "trustLabel": None, "trustScore": None},
                     "analysisSummary": {"score": None, "label": None, "message": str(e.detail)},
+                    "_downloadFailed": e.status_code,
                 }
             meta: dict[str, object] = {}
             if req.companyName:
@@ -52,6 +54,32 @@ async def _process_message(message: pubsub_v1.subscriber.message.Message) -> Non
             raw_results = list(await asyncio.gather(*[_fetch_and_analyze(u) for u in req.imageUrls]))
         else:
             raw_results = [await _fetch_and_analyze(u) for u in req.imageUrls]
+
+        # 모든 이미지가 영구 오류(4xx)면 재시도 없이 실패 결과를 발행하고 ack
+        all_failed = all(r.get("_downloadFailed") for r in raw_results)
+        any_permanent = any(
+            isinstance(r.get("_downloadFailed"), int) and 400 <= r["_downloadFailed"] < 500
+            for r in raw_results
+        )
+        if all_failed and any_permanent:
+            logger.warning(
+                "모든 이미지 다운로드 영구 실패, 재시도 없이 ack: analysisItemId=%d",
+                req.analysisItemId,
+            )
+            failed_result = AnalysisResultMessage(
+                analysisId=str(req.analysisItemId),
+                fraudProbability=None,
+                riskScore=None,
+                riskLevel=None,
+                trustScore=None,
+                riskSignals=[],
+                travelBanRegionsMatched=[],
+                message=raw_results[0]["analysisSummary"]["message"],
+                location=None,
+            )
+            await publish_result(failed_result)
+            message.ack()
+            return
 
         best = max(raw_results, key=lambda r: r["mlPrediction"]["riskScore"] or 0)
 
