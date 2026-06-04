@@ -23,7 +23,7 @@ from app.signals.risk_regions import find_risk_regions
 from app.signals.scam_domains import find_scam_domains
 from app.services.gemini_service import GeminiVisionResult, analyze_image_with_gemini_vision, polish_with_gemini
 from app.services.scoring_service import PredictionScores, score_prediction
-from app.services.maps_service import lookup_location
+from app.services.maps_service import MapsContext, lookup_location
 from app.services.summary_builder import build_message_with_gemini_summary, build_template_message
 
 
@@ -61,23 +61,31 @@ async def _run_analysis(
 ) -> dict:
     """단일 이미지에 대한 전체 분석 파이프라인."""
 
-    async def _run_vision() -> GeminiVisionResult:
-        if not image_bytes:
-            return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=False, error="image_bytes is empty")
-        try:
-            return await asyncio.to_thread(analyze_image_with_gemini_vision, image_bytes)
-        except Exception as e:  # noqa: BLE001
-            logger.exception("Gemini Vision failed: %s", e)
-            return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=True, error=str(e))
-
-    vision_result = await _run_vision()
-
     analysis_type = (_get_str(meta, "type") or "JOB_POST").upper()
     if analysis_type not in {"JOB_POST", "MESSAGE"}:
         analysis_type = "JOB_POST"
 
     company_name = _get_str(meta, "companyName")
     country_code = _get_str(meta, "countryCode")
+
+    # 1. Maps 먼저 실행: 회사 존재 여부를 Vision 전에 확인
+    location_result, maps_signals, maps_context = await lookup_location(
+        company_name=company_name,
+        regions_mentioned=[],
+        country_code=country_code,
+    )
+
+    # 2. Vision 실행 (Maps context 주입)
+    async def _run_vision(ctx: MapsContext) -> GeminiVisionResult:
+        if not image_bytes:
+            return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=False, error="image_bytes is empty")
+        try:
+            return await asyncio.to_thread(analyze_image_with_gemini_vision, image_bytes, ctx)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Gemini Vision failed: %s", e)
+            return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=True, error=str(e))
+
+    vision_result = await _run_vision(maps_context)
 
     fraud_prob: float = 0.5
     risk_signals: list[str] = []
@@ -101,13 +109,15 @@ async def _run_analysis(
     if scam_domains:
         fraud_prob = 1.0
 
-    # Google Maps 위치 조회 (GOOGLE_MAPS_API_KEY 없으면 (None, []) 반환)
-    location_result, maps_signals = await lookup_location(
-        company_name=company_name,
-        regions_mentioned=list(vision_result.regions_mentioned) if used_vision else [],
-        country_code=country_code,
-    )
     risk_signals.extend(maps_signals)
+
+    # 3. 회사 위치 없고 Vision이 지역명을 추출했으면 geocoding fallback
+    if location_result is None and used_vision and vision_result.regions_mentioned:
+        location_result, _, _ = await lookup_location(
+            company_name=None,
+            regions_mentioned=vision_result.regions_mentioned,
+            country_code=country_code,
+        )
 
     scores: PredictionScores = score_prediction(fraud_prob, FRAUD_THRESHOLD)
 

@@ -38,6 +38,13 @@ class LocationResult:
     viewport_sw: LatLng | None = field(default=None)
 
 
+@dataclass(frozen=True)
+class MapsContext:
+    company_found: bool
+    company_address: str | None = None
+    company_display_name: str | None = None
+
+
 def _get_api_key() -> str | None:
     load_dotenv_once()
     key = (os.environ.get("GOOGLE_MAPS_API_KEY") or "").strip()
@@ -168,20 +175,21 @@ async def lookup_location(
     company_name: str | None,
     regions_mentioned: list[str],
     country_code: str | None = None,
-) -> tuple[LocationResult | None, list[str]]:
+) -> tuple[LocationResult | None, list[str], MapsContext]:
     """
     회사명 또는 언급 지역을 Google Maps로 조회한다.
 
     Returns:
-        (LocationResult | None, extra_risk_signals)
-        GOOGLE_MAPS_API_KEY 미설정 또는 전체 실패 시 (None, []) 반환.
+        (LocationResult | None, extra_risk_signals, MapsContext)
+        GOOGLE_MAPS_API_KEY 미설정 또는 전체 실패 시 (None, [], MapsContext(company_found=False)) 반환.
     """
     api_key = _get_api_key()
     if not api_key:
-        return None, []
+        return None, [], MapsContext(company_found=False)
 
     signals: list[str] = []
     location_result: LocationResult | None = None
+    maps_context = MapsContext(company_found=False)
 
     timeout = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
     try:
@@ -198,6 +206,13 @@ async def lookup_location(
                     places_lat = loc.get("latitude", 0.0)
                     places_lng = loc.get("longitude", 0.0)
                     formatted_address = places_data.get("formattedAddress", "")
+                    display_name = places_data.get("displayName", {}).get("text", "")
+
+                    maps_context = MapsContext(
+                        company_found=True,
+                        company_address=formatted_address or None,
+                        company_display_name=display_name or None,
+                    )
 
                     admin_level = None
                     for comp in places_data.get("addressComponents", []):
@@ -226,6 +241,6 @@ async def lookup_location(
 
     except Exception as e:
         logger.warning("maps_service.lookup_location 예외: %s", e)
-        return None, []
+        return None, [], MapsContext(company_found=False)
 
-    return location_result, signals
+    return location_result, signals, maps_context

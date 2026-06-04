@@ -15,6 +15,7 @@ import logging
 import re
 
 from app.env import load_dotenv_once
+from app.services.maps_service import MapsContext
 from app.services.summary_builder import validate_polished_message
 
 logger = logging.getLogger(__name__)
@@ -92,8 +93,28 @@ def _detect_mime_type(data: bytes) -> str:
     return "image/jpeg"
 
 
-def _build_vision_prompt() -> str:
+def _build_vision_prompt(maps_context: MapsContext | None = None) -> str:
+    maps_section = ""
+    if maps_context is not None:
+        if maps_context.company_found and maps_context.company_address:
+            maps_section = (
+                "[Google Maps 사전 검증 결과]\n"
+                f"해당 회사가 Google Maps에서 확인되었습니다. 등록 주소: {maps_context.company_address}\n"
+                "따라서 '회사 정보 불명확' 기준은 이 공고에 적용하지 마세요.\n\n"
+            )
+        elif maps_context.company_found:
+            maps_section = (
+                "[Google Maps 사전 검증 결과]\n"
+                "해당 회사가 Google Maps에서 확인되었습니다. '회사 정보 불명확' 기준은 이 공고에 적용하지 마세요.\n\n"
+            )
+        else:
+            maps_section = (
+                "[Google Maps 사전 검증 결과]\n"
+                "해당 회사명이 Google Maps에서 검색되지 않았습니다. 이 점을 판단에 참고하세요.\n\n"
+            )
+
     return (
+        maps_section +
         "당신은 채용 사기 탐지 전문가입니다. 첨부된 이미지는 채용 공고 또는 채팅 캡처본입니다.\n"
         "이미지를 보고 아래 기준으로 사기 여부를 판단하여 정확히 JSON 형식으로만 응답하세요.\n"
         "다른 텍스트나 마크다운 코드블록은 절대 포함하지 마세요.\n\n"
@@ -131,7 +152,10 @@ def _build_vision_prompt() -> str:
     )
 
 
-def analyze_image_with_gemini_vision(image_bytes: bytes) -> GeminiVisionResult:
+def analyze_image_with_gemini_vision(
+    image_bytes: bytes,
+    maps_context: MapsContext | None = None,
+) -> GeminiVisionResult:
     """이미지 bytes를 Gemini Vision으로 직접 분석하여 사기 확률을 반환합니다."""
     load_dotenv_once()
     api_key = os.environ.get("GEMINI_API_KEY") or ""
@@ -145,7 +169,7 @@ def analyze_image_with_gemini_vision(image_bytes: bytes) -> GeminiVisionResult:
         return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=False, error="이미지 크기 20MB 초과")
 
     mime_type = _detect_mime_type(image_bytes)
-    prompt_text = _build_vision_prompt()
+    prompt_text = _build_vision_prompt(maps_context)
 
     try:
         from google import genai  # type: ignore
