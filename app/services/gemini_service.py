@@ -49,7 +49,6 @@ def _build_prompt(
     risk_score: int,
     risk_signals: list[str],
 ) -> str:
-    # 요구사항: 출력은 무조건 한국어 유지 + 3문장 구조 고정 + 숫자 변경 금지 + 사실 추가 금지
     rules = (
         "반드시 한국어로만 작성해.\n"
         "새로운 사실/근거를 절대 추가하지 마.\n"

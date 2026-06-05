@@ -57,7 +57,7 @@ def main() -> int:
         out = {
             "analysisId": "local",
             "type": args.type,
-            "mlPrediction": {
+            "aiPrediction": {
                 "modelVersion": MODEL_VERSION,
                 "fraudProbability": None,
                 "riskScore": None,
@@ -131,7 +131,7 @@ def main() -> int:
         "type": args.type,
         "travelBanRegionsMatched": risk_regions,
         "scamDomainsMatched": scam_domains,
-        "mlPrediction": {
+        "aiPrediction": {
             "modelVersion": MODEL_VERSION,
             "fraudProbability": fraud_prob,
             "riskScore": scores.risk_score,

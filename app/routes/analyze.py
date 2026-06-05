@@ -162,7 +162,7 @@ async def _run_analysis(
         "type": analysis_type,
         "travelBanRegionsMatched": risk_regions,
         "scamDomainsMatched": scam_domains,
-        "mlPrediction": {
+        "aiPrediction": {
             "modelVersion": MODEL_VERSION,
             "fraudProbability": float(fraud_prob),
             "riskScore": scores.risk_score,

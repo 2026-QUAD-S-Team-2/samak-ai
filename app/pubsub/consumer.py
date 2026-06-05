@@ -36,7 +36,7 @@ async def _process_message(message: pubsub_v1.subscriber.message.Message) -> Non
                 logger.error("이미지 다운로드 실패: url=%s detail=%s", url, e.detail)
                 return {
                     "analysisId": str(uuid4()),
-                    "mlPrediction": {"fraudProbability": None, "riskScore": None, "riskLevel": None, "modelVersion": "gemini-rule-v1.0.0", "thresholdUsed": None},
+                    "aiPrediction": {"fraudProbability": None, "riskScore": None, "riskLevel": None, "modelVersion": "gemini-rule-v1.0.0", "thresholdUsed": None},
                     "explanation": {"riskSignals": []},
                     "travelBanRegionsMatched": [],
                     "ui": {"riskLevel": None, "trustLabel": None, "trustScore": None},
@@ -81,13 +81,13 @@ async def _process_message(message: pubsub_v1.subscriber.message.Message) -> Non
             message.ack()
             return
 
-        best = max(raw_results, key=lambda r: r["mlPrediction"]["riskScore"] or 0)
+        best = max(raw_results, key=lambda r: r["aiPrediction"]["riskScore"] or 0)
 
         result = AnalysisResultMessage(
             analysisId=str(req.analysisItemId),
-            fraudProbability=best["mlPrediction"]["fraudProbability"],
-            riskScore=best["mlPrediction"]["riskScore"],
-            riskLevel=best["mlPrediction"]["riskLevel"],
+            fraudProbability=best["aiPrediction"]["fraudProbability"],
+            riskScore=best["aiPrediction"]["riskScore"],
+            riskLevel=best["aiPrediction"]["riskLevel"],
             trustScore=best["ui"]["trustScore"],
             riskSignals=best["explanation"]["riskSignals"],
             travelBanRegionsMatched=best.get("travelBanRegionsMatched", []),

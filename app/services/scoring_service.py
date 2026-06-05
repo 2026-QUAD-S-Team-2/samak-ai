@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 점수/레벨 계산 로직.
 
-- ML 확률 → riskScore / riskLevel
+- AI 신뢰도 → riskScore / riskLevel
 - UI 노출용 레벨/라벨 계산
 """
 
