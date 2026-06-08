@@ -4,8 +4,12 @@
 Google Cloud Pub/Sub으로 요청을 수신하고 결과를 발행합니다.
 
 ---
+## 전체 서비스 아키텍처
+<img width="800" height="629" alt="아키텍처" src="https://github.com/user-attachments/assets/6b5e2745-2f38-4628-83fe-477ea83681c8" />
 
-## 파이프라인
+
+
+## AI파트 파이프라인
 
 ```
 Pub/Sub 요청
@@ -20,26 +24,6 @@ Gemini Vision 분석 (Maps 결과 컨텍스트 포함)
     ↓
 Pub/Sub 결과 발행
 ```
-
----
-
-## 환경 변수
-
-| 변수 | 설명 |
-|------|------|
-| `GEMINI_API_KEY` | Google Gemini API 키 |
-| `GEMINI_MODEL` | 사용할 모델 (기본값: `gemini-2.5-flash`) |
-| `GOOGLE_MAPS_API_KEY` | Google Maps API 키 (없으면 위치 조회 비활성화) |
-| `GCP_PROJECT_ID` | Google Cloud 프로젝트 ID |
-| `PUBSUB_REQUEST_SUBSCRIPTION` | 분석 요청 구독 이름 (기본값: `analysis-request-subscription`) |
-| `PUBSUB_RESULT_TOPIC` | 분석 결과 토픽 이름 (기본값: `analysis-result-topic`) |
-| `PUBSUB_DLQ_SUBSCRIPTION` | DLQ 구독 이름 (기본값: `analysis-request-dead-letter-subscription`) |
-| `GOOGLE_APPLICATION_CREDENTIALS` | 서비스 계정 키 파일 경로 (GCP 환경에서는 불필요) |
-
-```bash
-cp .env.example .env
-```
-
 ---
 
 ## 실행
