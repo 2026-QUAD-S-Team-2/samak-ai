@@ -10,6 +10,7 @@ Gemini 서비스.
 
 import json
 import os
+import time
 from dataclasses import dataclass, field
 import logging
 import re
@@ -170,44 +171,56 @@ def analyze_image_with_gemini_vision(
     mime_type = _detect_mime_type(image_bytes)
     prompt_text = _build_vision_prompt(maps_context)
 
-    try:
-        from google import genai  # type: ignore
-        from google.genai import types  # type: ignore
+    from google import genai  # type: ignore
+    from google.genai import types  # type: ignore
 
-        client = genai.Client(api_key=api_key)
-        image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-        resp = client.models.generate_content(model=model, contents=[prompt_text, image_part])
-        text = getattr(resp, "text", None)
-        if not text:
-            return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=True, error="Gemini Vision returned empty text")
+    client = genai.Client(api_key=api_key)
+    image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
 
-        clean = text.strip()
-        if clean.startswith("```"):
-            clean = re.sub(r"^```[a-z]*\n?", "", clean)
-            clean = re.sub(r"\n?```$", "", clean)
+    last_error: Exception | None = None
+    for attempt in range(5):
+        try:
+            resp = client.models.generate_content(model=model, contents=[prompt_text, image_part])
+            text = getattr(resp, "text", None)
+            if not text:
+                return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=True, error="Gemini Vision returned empty text")
 
-        data = json.loads(clean)
-        fraud_prob = max(0.0, min(1.0, float(data.get("fraud_probability", 0.5))))
-        signals = [str(s) for s in data.get("risk_signals", [])][:5]
-        reasoning = str(data.get("reasoning", "")).strip()
-        domains_found = [str(d) for d in data.get("domains_found", [])][:10]
-        regions_mentioned = [str(r).lower() for r in data.get("regions_mentioned", [])][:10]
-        risk_quotes = [str(q).strip() for q in data.get("risk_quotes", []) if str(q).strip()][:3]
-        summary_message = str(data.get("summary_message", "")).strip()
+            clean = text.strip()
+            if clean.startswith("```"):
+                clean = re.sub(r"^```[a-z]*\n?", "", clean)
+                clean = re.sub(r"\n?```$", "", clean)
 
-        return GeminiVisionResult(
-            fraud_probability=fraud_prob,
-            risk_signals=signals,
-            reasoning=reasoning,
-            used_gemini=True,
-            error=None,
-            domains_found=domains_found,
-            regions_mentioned=regions_mentioned,
-            summary_message=summary_message,
-            risk_quotes=risk_quotes,
-        )
-    except Exception as e:  # noqa: BLE001
-        return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=True, error=str(e))
+            data = json.loads(clean)
+            fraud_prob = max(0.0, min(1.0, float(data.get("fraud_probability", 0.5))))
+            signals = [str(s) for s in data.get("risk_signals", [])][:5]
+            reasoning = str(data.get("reasoning", "")).strip()
+            domains_found = [str(d) for d in data.get("domains_found", [])][:10]
+            regions_mentioned = [str(r).lower() for r in data.get("regions_mentioned", [])][:10]
+            risk_quotes = [str(q).strip() for q in data.get("risk_quotes", []) if str(q).strip()][:3]
+            summary_message = str(data.get("summary_message", "")).strip()
+
+            return GeminiVisionResult(
+                fraud_probability=fraud_prob,
+                risk_signals=signals,
+                reasoning=reasoning,
+                used_gemini=True,
+                error=None,
+                domains_found=domains_found,
+                regions_mentioned=regions_mentioned,
+                summary_message=summary_message,
+                risk_quotes=risk_quotes,
+            )
+        except Exception as e:  # noqa: BLE001
+            last_error = e
+            err_str = str(e)
+            if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str:
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                logger.warning("Gemini Vision 503 과부하, %d초 후 재시도 (attempt %d/3)", wait, attempt + 1)
+                time.sleep(wait)
+            else:
+                break
+
+    return GeminiVisionResult(fraud_probability=0.5, risk_signals=[], reasoning="", used_gemini=True, error=str(last_error))
 
 
 def polish_with_gemini(
